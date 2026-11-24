@@ -2,8 +2,10 @@
 
 Per node: log in (admin password if known, else guest), request status and
 telemetry. Adaptive: a due poll is deferred when the node was heard passively
-and a recent poll succeeded; failures back off exponentially; a global hourly
-budget and a minimum gap between requests cap airtime.
+and a recent poll succeeded; failures back off exponentially; an hourly budget
+and a minimum gap between requests cap airtime. Budget and gap apply per
+companion radio (each is a separate network/frequency), and different radios
+poll in parallel.
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import asyncio
 import json
 import logging
 import time
-from collections import deque
+from collections import defaultdict, deque
 
 from . import config
 from .radio import RadioError
@@ -20,27 +22,42 @@ log = logging.getLogger(__name__)
 
 
 class Poller:
-    def __init__(self, db, box, radio, monitor):
-        self.db, self.box, self.radio, self.monitor = db, box, radio, monitor
-        self.sent: deque[float] = deque()
-        self.last_request = 0.0
-        self.current: str | None = None
+    def __init__(self, db, box, radios, monitor):
+        self.db, self.box, self.radios, self.monitor = db, box, radios, monitor
+        self.sent: dict[str, deque[float]] = defaultdict(deque)
+        self.last_request: dict[str, float] = defaultdict(float)
+        self.current: dict[str, str] = {}      # radio id -> pubkey being polled
+        self.running: set[asyncio.Task] = set()
         self._kick = asyncio.Event()
 
     def kick(self) -> None:
         self._kick.set()
 
-    def budget_left(self, settings) -> int:
+    def budget_left(self, settings, rid: str) -> int:
+        sent = self.sent[rid]
         cutoff = time.time() - 3600
-        while self.sent and self.sent[0] < cutoff:
-            self.sent.popleft()
-        return settings["budget_per_hour"] - len(self.sent)
+        while sent and sent[0] < cutoff:
+            sent.popleft()
+        return settings["budget_per_hour"] - len(sent)
 
-    def _spend(self) -> None:
-        self.sent.append(time.time())
-        self.last_request = time.time()
+    def budgets(self, settings) -> dict[str, int]:
+        return {r.id: self.budget_left(settings, r.id) for r in self.radios}
+
+    def _spend(self, rid: str) -> None:
+        self.sent[rid].append(time.time())
+        self.last_request[rid] = time.time()
+
+    def choose(self, node):
+        return self.radios.choose(node["pubkey"], node["radio_id"], self.monitor, self.db)
 
     async def run(self) -> None:
+        try:
+            await self._loop()
+        finally:
+            for task in list(self.running):
+                task.cancel()
+
+    async def _loop(self) -> None:
         while True:
             try:
                 await self.tick()
@@ -62,10 +79,9 @@ class Poller:
             " ORDER BY COALESCE(s.next_poll_at,0)", (now,))
 
     async def tick(self) -> None:
-        if self.radio.state != "connected":
-            return
         settings = config.get(self.db, "polling")
         now = time.time()
+        claimed: set[str] = set()   # one new poll per radio per tick keeps requests spaced
         for node in self.due_nodes(now):
             interval = node["poll_interval_min"] * 60
             live = self.monitor.live.get(node["pubkey"])
@@ -74,10 +90,19 @@ class Poller:
                     and now - node["last_poll_ok"] < 2 * interval):
                 self._schedule(node["pubkey"], now + interval / 2)
                 continue
-            if self.budget_left(settings) <= 0 or now - self.last_request < settings["min_gap_s"]:
-                return
-            await self.poll(node, settings)
-            return  # one node per tick keeps requests spaced
+            try:
+                radio = self.choose(node)
+            except RadioError:
+                continue
+            rid = radio.id
+            if (rid in claimed or radio.state != "connected" or radio.lock.locked() or rid in self.current
+                    or self.budget_left(settings, rid) <= 0 or now - self.last_request[rid] < settings["min_gap_s"]):
+                continue
+            claimed.add(rid)
+            self.current[rid] = node["pubkey"]   # reserve before the task starts
+            task = asyncio.create_task(self.poll(node, settings, radio), name=f"poll-{node['pubkey'][:8]}")
+            self.running.add(task)
+            task.add_done_callback(self.running.discard)
 
     def _schedule(self, pubkey: str, at: float) -> None:
         self.db.x("INSERT INTO node_state(pubkey,next_poll_at) VALUES(?,?)"
@@ -89,50 +114,59 @@ class Poller:
             return "admin", admin
         return "guest", self.box.open(node["guest_pw"]) or ""
 
-    async def ensure_login(self, node, contact, settings, force=False) -> str:
+    async def ensure_login(self, node, radio, contact, settings, force=False) -> str:
+        """Log in unless this companion holds a recent session with the same role."""
         role, password = self.credentials(node)
         fresh = (node["last_login_at"] and time.time() - node["last_login_at"] < settings["login_max_age_min"] * 60
-                 and node["login_role"] == role)
+                 and node["login_role"] == role and node["login_radio"] == radio.id)
         if fresh and not force:
             return role
-        self._spend()
-        result = await self.radio.login(contact, password, settings["request_timeout_s"])
+        self._spend(radio.id)
+        result = await radio.login(contact, password, settings["request_timeout_s"])
         role = "admin" if result.get("is_admin") else "guest"
-        self.db.x("UPDATE node_state SET last_login_at=?, login_role=? WHERE pubkey=?",
-                  (time.time(), role, node["pubkey"]))
+        self.db.x("UPDATE node_state SET last_login_at=?, login_role=?, login_radio=? WHERE pubkey=?",
+                  (time.time(), role, radio.id, node["pubkey"]))
         return role
 
-    async def poll(self, node, settings=None) -> dict:
+    def node_row(self, key: str):
+        self.db.x("INSERT INTO node_state(pubkey) VALUES(?) ON CONFLICT DO NOTHING", (key,))
+        return self.db.one(
+            "SELECT w.*, s.last_login_at, s.login_role, s.login_radio, s.poll_fails FROM watched w"
+            " LEFT JOIN node_state s USING(pubkey) WHERE pubkey=?", (key,))
+
+    async def poll(self, node, settings=None, radio=None) -> dict:
         """Poll one node now. Returns a summary; records results and schedule."""
         settings = settings or config.get(self.db, "polling")
-        key, now = node["pubkey"], time.time()
-        self.db.x("INSERT INTO node_state(pubkey) VALUES(?) ON CONFLICT DO NOTHING", (key,))
-        node = self.db.one(
-            "SELECT w.*, s.last_login_at, s.login_role, s.poll_fails FROM watched w"
-            " LEFT JOIN node_state s USING(pubkey) WHERE pubkey=?", (key,))
-        self.current = key
+        key = node["pubkey"]
+        node = self.node_row(key)
         result: dict = {"ok": False}
+        rid = radio.id if radio else None
         try:
-            async with self.radio.lock:
-                contact = await self.radio.contact(key, self.monitor.directory.get(key))
-                await self.ensure_login(node, contact, settings)
-                self._spend()
-                status = await self.radio.status(contact, settings["request_timeout_s"])
+            radio = radio or self.choose(node)
+            rid = radio.id
+            self.current[rid] = key
+            async with radio.lock:
+                contact = await radio.contact(key, self.monitor.directory.get(key))
+                await self.ensure_login(node, radio, contact, settings)
+                self._spend(rid)
+                status = await radio.status(contact, settings["request_timeout_s"])
                 if status is None:
                     # Session may have expired on the node: log in again once.
-                    await self.ensure_login(node, contact, settings, force=True)
-                    self._spend()
-                    status = await self.radio.status(contact, settings["request_timeout_s"])
+                    await self.ensure_login(node, radio, contact, settings, force=True)
+                    self._spend(rid)
+                    status = await radio.status(contact, settings["request_timeout_s"])
                 if status is None:
                     raise RadioError("no status response")
-                self._spend()
-                lpp = await self.radio.telemetry(contact, settings["request_timeout_s"])
+                self._spend(rid)
+                lpp = await radio.telemetry(contact, settings["request_timeout_s"])
             self._store(key, status, lpp)
             result = {"ok": True, "status": status, "telemetry": lpp}
         except RadioError as exc:
             result = {"ok": False, "error": str(exc)}
         finally:
-            self.current = None
+            if rid and self.current.get(rid) == key:
+                del self.current[rid]
+        result["radio"] = rid
         self._record_outcome(node, result)
         return result
 
@@ -157,10 +191,11 @@ class Poller:
         settings = config.get(self.db, "polling")
         if result["ok"]:
             self.db.x("UPDATE node_state SET last_poll_at=?, last_poll_ok=?, poll_fails=0, next_poll_at=?,"
-                      " last_error=NULL WHERE pubkey=?", (now, now, now + interval, node["pubkey"]))
+                      " last_error=NULL, poll_radio=? WHERE pubkey=?",
+                      (now, now, now + interval, result.get("radio"), node["pubkey"]))
         else:
             fails = (node["poll_fails"] or 0) + 1
             delay = min(interval * 2 ** (fails - 1), settings["max_backoff_min"] * 60)
             self.db.x("UPDATE node_state SET last_poll_at=?, poll_fails=?, next_poll_at=?, last_error=?"
                       " WHERE pubkey=?", (now, fails, now + delay, result["error"], node["pubkey"]))
-            log.info("poll %s failed: %s", node["pubkey"][:8], result["error"])
+            log.info("poll %s via %s failed: %s", node["pubkey"][:8], result.get("radio"), result["error"])

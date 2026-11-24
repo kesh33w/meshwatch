@@ -6,7 +6,8 @@ nodes **you** care about. Each person runs their own instance with their own wat
 - **Passive monitoring** from any MeshCore MQTT feed (the common observer format,
   `meshcore/<IATA>/<observer>/packets`) and from your companion radio: last heard,
   which observers hear the node directly, SNR/RSSI, paths.
-- **Active polling** through a companion radio (TCP or USB serial): logs in to your
+- **Active polling** through one or more companion radios (TCP or USB serial; e.g. one per
+  frequency/network): logs in to your
   repeaters/room servers (admin password if known, otherwise guest) and fetches
   battery, uptime, noise floor, airtime, packet counters and telemetry.
 - **Alerts** via [ntfy](https://ntfy.sh): node silent, low battery, SNR drop versus its
@@ -47,8 +48,11 @@ docker compose logs meshwatch | grep setup                      # one-time setup
 
 Open the setup link, create your passkey, then in **Settings**:
 
-1. **Companion radio**: TCP host/port of a WiFi/TCP companion (or an openHop companion
-   identity), or a USB serial device (uncomment `devices:` in `compose.yaml`).
+1. **Companion radios**: TCP host/port of a WiFi/TCP companion (or an openHop companion
+   identity), or a USB serial device (uncomment `devices:` in `compose.yaml`). Add one per
+   network if you watch nodes on more than one frequency. Each node uses the radio picked on
+   its page, or **Automatic**: the companion that heard it most recently, then a companion whose
+   optional *MQTT regions* match where the node was heard, then the one that last polled it.
 2. **MQTT feeds**: e.g. `wss://broker.example.org/mqtt` with your credentials.
 3. **Notifications**: an ntfy server + topic; subscribe to it in the ntfy phone app.
 
@@ -68,8 +72,8 @@ The container listens on `127.0.0.1:8790` only. Put TLS in front, for example:
 
 ## Airtime and safety
 
-- One request at a time through the companion; global budget (default 20 mesh requests/hour)
-  and minimum gap between requests. A poll is up to 3 requests (login when needed, status,
+- One request at a time per companion; per-companion budget (default 20 mesh requests/hour)
+  and minimum gap between requests. Different companions poll in parallel. A poll is up to 3 requests (login when needed, status,
   telemetry). A due poll is skipped when the node was heard passively and recently polled.
   Failures back off exponentially (max 6 h).
 - Stored passwords (repeaters, MQTT, ntfy) are encrypted with a key derived from

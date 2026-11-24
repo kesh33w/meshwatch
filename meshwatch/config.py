@@ -42,7 +42,9 @@ class Env:
 # with crypto.Box and stored as "<name>_enc".
 DEFAULTS = {
     "mqtt_sources": [],   # [{id,name,url,username,password_enc,topics:[...],enabled}]
-    "radio": {"kind": "none", "host": "", "port": 5000, "serial_port": "", "baud": 115200},
+    # [{id,name,kind,host,port,serial_port,baud,regions:[...]}]; one per network/frequency
+    "radios": [],
+    "radio": {"kind": "none", "host": "", "port": 5000, "serial_port": "", "baud": 115200},  # pre-0.2, migrated
     "ntfy": {"server": "https://ntfy.sh", "topic": "", "token_enc": None, "enabled": False},
     "polling": {"budget_per_hour": 20, "min_gap_s": 15, "max_backoff_min": 360,
                 "login_max_age_min": 180, "request_timeout_s": 30},
@@ -50,6 +52,18 @@ DEFAULTS = {
                "snr_window_min": 120, "snr_baseline_days": 7, "snr_min_samples": 5,
                "observer_drop_ratio": 0.5},
 }
+
+
+def radios(db) -> list[dict]:
+    """Configured companions; converts the single pre-0.2 "radio" setting on first use."""
+    value = db.get_setting("radios")
+    if value is None:
+        old = db.get_setting("radio") or {}
+        value = []
+        if old.get("kind") in ("tcp", "serial"):
+            value = [{**DEFAULTS["radio"], **old, "id": "r1", "name": "Radio 1", "regions": []}]
+        db.set_setting("radios", value)
+    return value
 
 
 def get(db, key: str):

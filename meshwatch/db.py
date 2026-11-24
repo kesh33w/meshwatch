@@ -25,13 +25,15 @@ CREATE TABLE IF NOT EXISTS watched (
   silent_min INTEGER,                      -- NULL = automatic default
   battery_mv INTEGER NOT NULL DEFAULT 3500,
   snr_drop_db REAL NOT NULL DEFAULT 6,
-  notes TEXT NOT NULL DEFAULT '');
+  notes TEXT NOT NULL DEFAULT '',
+  radio_id TEXT);                          -- companion to use; NULL = automatic
 
 CREATE TABLE IF NOT EXISTS node_state (
   pubkey TEXT PRIMARY KEY, last_heard REAL, last_heard_via TEXT,
   last_advert REAL, last_poll_at REAL, last_poll_ok REAL, poll_fails INTEGER NOT NULL DEFAULT 0,
   next_poll_at REAL, last_login_at REAL, login_role TEXT, last_error TEXT,
-  status TEXT, status_at REAL, telemetry TEXT, telemetry_at REAL, firmware TEXT);
+  status TEXT, status_at REAL, telemetry TEXT, telemetry_at REAL, firmware TEXT,
+  poll_radio TEXT, login_radio TEXT);
 
 -- Raw data (30 days). One row per node/observer/kind per 5-minute bucket,
 -- averaged, to keep disk writes low for busy repeaters.
@@ -92,6 +94,17 @@ class DB:
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
+        self._migrate()
+
+    # Columns added after the first release (CREATE TABLE IF NOT EXISTS leaves old tables alone).
+    ADDED_COLUMNS = {"watched": ["radio_id TEXT"], "node_state": ["poll_radio TEXT", "login_radio TEXT"]}
+
+    def _migrate(self) -> None:
+        for table, columns in self.ADDED_COLUMNS.items():
+            have = {r["name"] for r in self.q(f"PRAGMA table_info({table})")}
+            for col in columns:
+                if col.split()[0] not in have:
+                    self.x(f"ALTER TABLE {table} ADD COLUMN {col}")
 
     def q(self, sql: str, args=()) -> list[sqlite3.Row]:
         return self.conn.execute(sql, args).fetchall()

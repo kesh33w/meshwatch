@@ -92,6 +92,29 @@ def test_full_flow(client):
     assert "tk" not in client.get("/settings").text
     r = client.post("/settings/mqtt", data={"name": "feed", "url": "ftp://x", "action": "add"}, headers=h)
     assert r.status_code == 400
+    # Radios: add two, edit, assign one to the node, remove it again.
+    for name, port in (("909", 5053), ("910", 5054)):
+        r = client.post("/settings/radio", data={"name": name, "kind": "none", "host": "10.40.0.100",
+                        "port": str(port), "regions": "sjc, SFO", "action": "add"}, headers=h, follow_redirects=False)
+        assert r.status_code == 303
+    radios = client.svc.db.get_setting("radios")
+    assert [(x["id"], x["name"], x["port"], x["regions"]) for x in radios] == [
+        ("r1", "909", 5053, ["SJC", "SFO"]), ("r2", "910", 5054, ["SJC", "SFO"])]
+    assert set(client.svc.radios.by_id) == {"r1", "r2"}
+    assert client.post("/settings/radio", data={"name": "x", "kind": "tcp", "port": "99999"},
+                       headers=h).status_code == 400
+    page = client.get("/settings").text
+    assert "910" in page and "5054" in page
+    assert len(client.get("/api/v1/status").json()["radios"]) == 2
+    r = client.post(f"/nodes/{pub}/settings", data={"poll_interval_min": "45", "battery_mv": "3400",
+                    "snr_drop_db": "5", "radio_id": "r2"}, headers=h, follow_redirects=False)
+    assert r.status_code == 303 and client.get(f"/api/v1/nodes/{pub}").json()["radio_id"] == "r2"
+    assert 'value="r2" selected' in client.get(f"/nodes/{pub}").text
+    assert client.post(f"/nodes/{pub}/settings", data={"poll_interval_min": "45", "battery_mv": "3400",
+                       "snr_drop_db": "5", "radio_id": "nope"}, headers=h).status_code == 400
+    r = client.post("/settings/radio", data={"id": "r2", "action": "delete"}, headers=h, follow_redirects=False)
+    assert r.status_code == 303 and set(client.svc.radios.by_id) == {"r1"}
+    assert client.get(f"/api/v1/nodes/{pub}").json()["radio_id"] is None
     r = client.post("/settings/tokens", data={"label": "phone"}, headers=h, follow_redirects=False)
     token = r.cookies.get("mw_new_token")
     assert token and token.startswith("mw_")

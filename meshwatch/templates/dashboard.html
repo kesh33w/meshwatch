@@ -12,9 +12,11 @@
 </div>
 <h2>Data sources</h2>
 <div class="stats">
-  <div class="stat"><div class="k">Companion radio</div>
-    <div class="v">{{ system.radio.state }}</div>
-    <div class="note">{{ system.radio.name or "" }}{% if system.radio.error %} · {{ system.radio.error }}{% endif %}</div></div>
+  {% for r in system.radios %}<div class="stat"><div class="k">Radio {{ r.name }}</div>
+    <div class="v">{{ r.state }}</div>
+    <div class="note">{{ r.node_name or "" }}{% if r.error %} · {{ r.error }}{% endif %}</div></div>
+  {% else %}<div class="stat"><div class="k">Companion radio</div><div class="v">none</div>
+    <div class="note"><a href="/settings#radio">add one</a></div></div>{% endfor %}
   {% for m in system.mqtt %}
   <div class="stat"><div class="k">MQTT · {{ m.name }}</div><div class="v">{{ m.state }}</div>
     <div class="note">{{ m.messages }} msgs · last {{ m.last_message|age }}{% if m.error %} · {{ m.error }}{% endif %}</div></div>

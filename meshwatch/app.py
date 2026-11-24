@@ -24,7 +24,7 @@ from .db import DB
 from .ingest import DEFAULT_TOPICS, Sources
 from .monitor import Monitor
 from .poller import Poller
-from .radio import Radio, RadioError
+from .radio import Radios, RadioError
 
 log = logging.getLogger("meshwatch")
 HERE = Path(__file__).parent
@@ -43,32 +43,29 @@ class Services:
         self.box = Box(env.secret_key)
         self.auth = Auth(self.db, env)
         self.monitor = Monitor(self.db)
-        self.radio = Radio(on_rx=self._radio_rx)
+        self.radios = Radios(on_rx=self._radio_rx)
         self.sources = Sources(self.monitor, self.box)
-        self.poller = Poller(self.db, self.box, self.radio, self.monitor)
+        self.poller = Poller(self.db, self.box, self.radios, self.monitor)
         self.notifier = Notifier(self.db, self.box, env.origin)
         self.alerts = Alerts(self.db, self.monitor, self.notifier, self.last_data)
-        self.radio_rx_count = 0
-        self.radio_last_rx: float | None = None
         self.tasks: list[asyncio.Task] = []
 
-    def _radio_rx(self, raw, snr, rssi) -> None:
-        self.radio_rx_count += 1
-        self.radio_last_rx = time.time()
-        name = self.radio.self_info.get("public_key", "companion")[:64]
-        self.monitor.ingest(raw, name, "radio", snr, rssi)
+    def _radio_rx(self, radio, raw, snr, rssi) -> None:
+        # The companion's public key is the observer, so "heard by" lists it like any MQTT observer
+        # and automatic radio choice can tell which companion hears a node.
+        self.monitor.ingest(raw, radio.public_key or f"companion-{radio.id}", "radio", snr, rssi)
 
     def last_data(self) -> float | None:
         times = [s.last_message for s in self.sources.sources.values() if s.last_message]
-        if self.radio_last_rx:
-            times.append(self.radio_last_rx)
+        if self.radios.last_rx:
+            times.append(self.radios.last_rx)
         # Grace period after start before "no data" can fire.
         return max(times) if times else self.started
 
     async def start(self) -> None:
         await self.sources.apply(config.get(self.db, "mqtt_sources"))
-        self.radio.configure(config.get(self.db, "radio"))
-        self.radio.start()
+        self.radios.apply(config.radios(self.db))
+        self.radios.start()
         self.tasks = [asyncio.create_task(self.poller.run(), name="poller"),
                       asyncio.create_task(self._every(60, self._minute), name="minute"),
                       asyncio.create_task(self._every(3600, self._hourly, first=30), name="hourly")]
@@ -80,7 +77,7 @@ class Services:
             with contextlib.suppress(asyncio.CancelledError):
                 await t
         await self.sources.stop()
-        await self.radio.stop()
+        await self.radios.stop()
         self.monitor.flush(force=True)
 
     async def _every(self, seconds, fn, first=None) -> None:
@@ -167,7 +164,7 @@ def create_app(env=None) -> FastAPI:
     def page(request, name, **ctx):
         s = svc(request)
         open_alerts = s.db.one("SELECT COUNT(*) AS c FROM alerts WHERE resolved IS NULL")["c"]
-        return templates.TemplateResponse(request, name, {"open_alerts": open_alerts, "radio": s.radio, **ctx})
+        return templates.TemplateResponse(request, name, {"open_alerts": open_alerts, "radio": s.radios, **ctx})
 
     # --- login / setup ------------------------------------------------------
     @app.get("/healthz")
@@ -277,6 +274,7 @@ def create_app(env=None) -> FastAPI:
             "poll_fails": state["poll_fails"] if state else 0, "last_error": state["last_error"] if state else None,
             "next_poll_at": state["next_poll_at"] if state else None,
             "login_role": state["login_role"] if state else None,
+            "radio_id": row["radio_id"], "poll_radio": state["poll_radio"] if state else None,
             "has_admin": bool(row["admin_pw"]), "has_guest": bool(row["guest_pw"]),
             "poll_enabled": bool(row["poll_enabled"]), "poll_interval_min": row["poll_interval_min"],
             "alerts_enabled": bool(row["alerts_enabled"]), "silent_min": row["silent_min"],
@@ -299,14 +297,14 @@ def create_app(env=None) -> FastAPI:
 
     def system_status(s: Services) -> dict:
         return {
-            "radio": {"state": s.radio.state, "error": s.radio.error, "name": s.radio.self_info.get("name"),
-                      "public_key": s.radio.self_info.get("public_key"), "rx_packets": s.radio_rx_count},
+            "radio": {"state": s.radios.state, "error": s.radios.error},
+            "radios": [r.view() for r in s.radios],
             "mqtt": [{"name": src.cfg.get("name"), "state": src.state, "error": src.error,
                       "messages": src.messages, "last_message": src.last_message}
                      for src in s.sources.sources.values()],
             "monitor": dict(s.monitor.stats, directory=len(s.monitor.directory)),
-            "poller": {"budget_left": s.poller.budget_left(config.get(s.db, "polling")),
-                       "current": s.poller.current},
+            "poller": {"budget_left": s.poller.budgets(config.get(s.db, "polling")),
+                       "current": dict(s.poller.current)},
         }
 
     # --- pages ----------------------------------------------------------------
@@ -371,7 +369,10 @@ def create_app(env=None) -> FastAPI:
         paths = s.db.q("SELECT ts, kind, observer, hops, path, snr FROM observations WHERE pubkey=?"
                        " ORDER BY ts DESC LIMIT 25", (key,))
         alert_log = s.db.q("SELECT * FROM alerts WHERE pubkey=? ORDER BY started DESC LIMIT 20", (key,))
-        return page(request, "node.html", n=node_view(s, row), charts=charts, range=range,
+        for r in s.radios:
+            if r.public_key:
+                observer_names[r.public_key] = f"meshwatch companion ({r.name})"
+        return page(request, "node.html", n=node_view(s, row), charts=charts, range=range, radios=list(s.radios),
                     ranges=list(history.RANGES), observers=observers, observer_names=observer_names,
                     paths=paths, alert_log=alert_log)
 
@@ -403,6 +404,11 @@ def create_app(env=None) -> FastAPI:
             "snr_drop_db": num("snr_drop_db", 1, 40, float),
             "notes": str(form.get("notes", ""))[:2000],
         }
+        if "radio_id" in form:
+            rid = str(form.get("radio_id") or "").strip() or None
+            if rid and s.radios.get(rid) is None:
+                raise HTTPException(400, "Unknown radio")
+            updates["radio_id"] = rid
         for field in ("admin_pw", "guest_pw"):
             if form.get(f"clear_{field}"):
                 updates[field] = None
@@ -410,7 +416,7 @@ def create_app(env=None) -> FastAPI:
                 updates[field] = s.box.seal(str(form.get(field)))
         sets = ", ".join(f"{k}=?" for k in updates)
         s.db.x(f"UPDATE watched SET {sets} WHERE pubkey=?", (*updates.values(), key))
-        if "admin_pw" in updates or "guest_pw" in updates:
+        if "admin_pw" in updates or "guest_pw" in updates or "radio_id" in updates:
             s.db.x("UPDATE node_state SET last_login_at=NULL, next_poll_at=NULL WHERE pubkey=?", (key,))
         changed = sorted(k for k in updates if k not in ("notes",))
         s.db.audit("watch_settings", key, ", ".join(changed), True, client=client_desc(request))
@@ -434,9 +440,13 @@ def create_app(env=None) -> FastAPI:
     async def node_poll(request: Request, key: str):
         s = svc(request)
         row = watched_row(s, key)
-        if not s.poller.budget_left(config.get(s.db, "polling")) > 0:
-            raise HTTPException(429, "Hourly polling budget used up")
-        result = await s.poller.poll(row)
+        try:
+            radio = s.poller.choose(row)
+        except RadioError as exc:
+            raise HTTPException(503, str(exc)) from None
+        if not s.poller.budget_left(config.get(s.db, "polling"), radio.id) > 0:
+            raise HTTPException(429, f"Hourly polling budget used up on {radio.name}")
+        result = await s.poller.poll(row, radio=radio)
         s.db.audit("poll", key, None, result["ok"], result.get("error"), client_desc(request))
         if request.headers.get("hx-request") or request.headers.get("accept", "").startswith("application/json"):
             return JSONResponse({"ok": result["ok"], "error": result.get("error")})
@@ -469,7 +479,7 @@ def create_app(env=None) -> FastAPI:
     async def settings_page(request: Request, new_token: str = ""):
         s = svc(request)
         response = page(request, "settings.html",
-                    mqtt=config.get(s.db, "mqtt_sources"), radio_cfg=config.get(s.db, "radio"),
+                    mqtt=config.get(s.db, "mqtt_sources"), radios_cfg=config.radios(s.db),
                     ntfy=config.get(s.db, "ntfy"), polling=config.get(s.db, "polling"),
                     alerts_cfg=config.get(s.db, "alerts"), system=system_status(s),
                     passkeys=s.db.q("SELECT * FROM credentials ORDER BY created"),
@@ -511,15 +521,40 @@ def create_app(env=None) -> FastAPI:
         return back("mqtt")
 
     @app.post("/settings/radio")
-    async def settings_radio(request: Request, kind: str = Form("none"), host: str = Form(""),
-                             port: int = Form(5000), serial_port: str = Form(""), baud: int = Form(115200)):
+    async def settings_radio(request: Request):
         s = svc(request)
-        if kind not in ("none", "tcp", "serial"):
-            raise HTTPException(400, "Unknown connection type")
-        cfg = {"kind": kind, "host": host.strip(), "port": port, "serial_port": serial_port.strip(), "baud": baud}
-        s.db.set_setting("radio", cfg)
-        s.db.audit("settings_radio", None, f"{kind} {host or serial_port}:{port}", True, client=client_desc(request))
-        s.radio.configure(cfg)
+        form = await request.form()
+        radios = config.radios(s.db)
+        action, rid = form.get("action"), form.get("id")
+        if action == "delete":
+            radios = [r for r in radios if r["id"] != rid]
+            s.db.x("UPDATE watched SET radio_id=NULL WHERE radio_id=?", (rid,))
+            detail = f"delete {rid}"
+        else:
+            kind = str(form.get("kind", "none"))
+            if kind not in ("none", "tcp", "serial"):
+                raise HTTPException(400, "Unknown connection type")
+            try:
+                port, baud = int(form.get("port") or 5000), int(form.get("baud") or 115200)
+            except ValueError:
+                raise HTTPException(400, "Port and baud must be numbers") from None
+            if not 1 <= port <= 65535:
+                raise HTTPException(400, "Port must be between 1 and 65535")
+            regions = [x.strip().upper() for x in str(form.get("regions", "")).split(",") if x.strip()]
+            if any(not re.match(r"^[A-Z0-9_.|-]{1,32}$", x) for x in regions):
+                raise HTTPException(400, "Regions: letters, digits, '.', '-', '_' and '|' only")
+            entry = next((r for r in radios if r["id"] == rid), None)
+            if entry is None:
+                used = {r["id"] for r in radios}
+                entry = {"id": next(f"r{i}" for i in range(1, 100) if f"r{i}" not in used)}
+                radios.append(entry)
+            entry.update(name=str(form.get("name", "")).strip()[:40] or f"Radio {entry['id'][1:]}", kind=kind,
+                         host=str(form.get("host", "")).strip(), port=port,
+                         serial_port=str(form.get("serial_port", "")).strip(), baud=baud, regions=regions)
+            detail = f"{entry['id']} {entry['name']}: {kind} {entry['host'] or entry['serial_port']}:{port}"
+        s.db.set_setting("radios", radios)
+        s.db.audit("settings_radio", None, detail, True, client=client_desc(request))
+        s.radios.apply(radios)
         return back("radio")
 
     @app.post("/settings/ntfy")
@@ -657,18 +692,17 @@ def create_app(env=None) -> FastAPI:
         if not row["admin_pw"]:
             raise HTTPException(400, "Remote CLI needs the node's admin password (Settings on the node page)")
         settings = config.get(s.db, "polling")
-        node = s.db.one("SELECT w.*, s.last_login_at, s.login_role FROM watched w"
-                        " LEFT JOIN node_state s USING(pubkey) WHERE pubkey=?", (key,))
-        s.db.x("INSERT INTO node_state(pubkey) VALUES(?) ON CONFLICT DO NOTHING", (key,))
+        node = s.poller.node_row(key)
         started = time.time()
         try:
-            async with s.radio.lock:
-                contact = await s.radio.contact(key, s.monitor.directory.get(key))
-                role = await s.poller.ensure_login(node, contact, settings)
+            radio = s.poller.choose(node)
+            async with radio.lock:
+                contact = await radio.contact(key, s.monitor.directory.get(key))
+                role = await s.poller.ensure_login(node, radio, contact, settings)
                 if role != "admin":
                     raise RadioError("logged in without admin rights; check the admin password")
-                s.poller._spend()
-                reply = await s.radio.cli(contact, command, settings["request_timeout_s"])
+                s.poller._spend(radio.id)
+                reply = await radio.cli(contact, command, settings["request_timeout_s"])
             ok, error = True, None
         except RadioError as exc:
             reply, ok, error = "", False, str(exc)

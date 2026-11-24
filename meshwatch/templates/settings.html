@@ -2,22 +2,31 @@
 {% block content %}
 <h1>Settings</h1>
 
-<h2 id="radio">Companion radio</h2>
+<h2 id="radio">Companion radios</h2>
 <div class="panel">
-<p class="note">Used for polling and the remote console. Status: <b>{{ system.radio.state }}</b>{% if system.radio.name %} · {{ system.radio.name }} <span class="mono">{{ (system.radio.public_key or "")[:12] }}</span>{% endif %}{% if system.radio.error %} · <span class="error-text">{{ system.radio.error }}</span>{% endif %} · {{ system.radio.rx_packets }} packets received</p>
-<form method="post" action="/settings/radio">
+<p class="note">Used for polling and the remote console. Add one companion per network/frequency (e.g. 909 and 910). Each node uses the radio chosen on its page, or picks one automatically: the companion that heard it most recently, then a companion whose MQTT regions match where it was heard, then the one that last polled it. Each radio has its own hourly polling budget.</p>
+{% macro radio_form(r, st) %}
+<form method="post" action="/settings/radio" class="panel">
+  <input type="hidden" name="id" value="{{ r.id or '' }}">
+  {% if st %}<div class="note">Status: <b>{{ st.state }}</b>{% if st.node_name %} · {{ st.node_name }} <span class="mono">{{ (st.public_key or "")[:12] }}</span>{% endif %}{% if st.freq %} · {{ st.freq }} MHz{% endif %}{% if st.error %} · <span class="error-text">{{ st.error }}</span>{% endif %} · {{ st.rx_packets }} packets received</div>{% endif %}
   <div class="row">
-    <div><label for="kind">Connection</label><select id="kind" name="kind">
-      {% for k, t in [("none","Off"),("tcp","TCP (WiFi companion, openHop)"),("serial","USB serial")] %}<option value="{{ k }}" {{ 'selected' if radio_cfg.kind == k }}>{{ t }}</option>{% endfor %}</select></div>
-    <div><label for="host">TCP host</label><input type="text" id="host" name="host" value="{{ radio_cfg.host }}"></div>
-    <div><label for="port">TCP port</label><input type="number" id="port" name="port" value="{{ radio_cfg.port }}"></div>
+    <div><label>Name</label><input type="text" name="name" value="{{ r.name or '' }}" maxlength="40" placeholder="e.g. 910"></div>
+    <div><label>Connection</label><select name="kind">
+      {% for k, t in [("tcp","TCP (WiFi companion, openHop)"),("serial","USB serial"),("none","Off")] %}<option value="{{ k }}" {{ 'selected' if r.kind == k }}>{{ t }}</option>{% endfor %}</select></div>
+    <div><label>TCP host</label><input type="text" name="host" value="{{ r.host or '' }}"></div>
+    <div><label>TCP port</label><input type="number" name="port" min="1" max="65535" value="{{ r.port or 5000 }}"></div>
   </div>
   <div class="row">
-    <div><label for="serial_port">Serial device</label><input type="text" id="serial_port" name="serial_port" value="{{ radio_cfg.serial_port }}" placeholder="/dev/ttyACM0"></div>
-    <div><label for="baud">Baud</label><input type="number" id="baud" name="baud" value="{{ radio_cfg.baud }}"></div>
+    <div><label>Serial device</label><input type="text" name="serial_port" value="{{ r.serial_port or '' }}" placeholder="/dev/ttyACM0"></div>
+    <div><label>Baud</label><input type="number" name="baud" value="{{ r.baud or 115200 }}"></div>
+    <div><label>MQTT regions on this network (comma separated, optional)</label><input type="text" name="regions" value="{{ (r.regions or [])|join(', ') }}" placeholder="e.g. SJC, SFO"></div>
   </div>
-  <div class="actions"><button type="submit">Save and reconnect</button></div>
+  <div class="actions">{% if r.id %}<button type="submit" name="action" value="save">Save and reconnect</button>
+  <button type="submit" name="action" value="delete" class="danger" data-confirm-click="Remove this radio? Nodes set to it go back to automatic.">Remove</button>{% else %}<button type="submit" name="action" value="add">Add radio</button>{% endif %}</div>
 </form>
+{% endmacro %}
+{% for r in radios_cfg %}{{ radio_form(r, (system.radios | selectattr("id", "equalto", r.id) | first)) }}{% endfor %}
+<details{{ ' open' if not radios_cfg }}><summary>Add a radio</summary>{{ radio_form({"kind": "tcp"}, none) }}</details>
 </div>
 
 <h2 id="mqtt">MQTT feeds</h2>

@@ -65,6 +65,8 @@
   <div class="row">
     <div><label for="label">Label</label><input type="text" id="label" name="label" value="{{ n.label if n.label != n.pubkey[:8] else '' }}" maxlength="40"></div>
     <div><label for="poll_interval_min">Poll every (minutes)</label><input type="number" id="poll_interval_min" name="poll_interval_min" min="5" max="1440" value="{{ n.poll_interval_min }}"></div>
+    <div><label for="radio_id">Radio{% if n.poll_radio and radios|length > 1 %} (last polled via {{ (radios|selectattr("id","equalto",n.poll_radio)|map(attribute="name")|first) or n.poll_radio }}){% endif %}</label><select id="radio_id" name="radio_id">
+      <option value="">Automatic</option>{% for r in radios %}<option value="{{ r.id }}" {{ 'selected' if n.radio_id == r.id }}>{{ r.name }}</option>{% endfor %}</select></div>
     <div><label for="silent_min">Silent alert after (minutes, blank = auto {{ n.silent_effective_min if not n.silent_min else '' }})</label><input type="number" id="silent_min" name="silent_min" min="5" value="{{ n.silent_min or '' }}"></div>
   </div>
   <div class="row">
