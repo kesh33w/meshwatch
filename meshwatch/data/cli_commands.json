@@ -1,0 +1,1783 @@
+{
+ "source": "MeshCore main @75b04ef (2026-11-14; latest tag repeater-v1.18.0) docs/cli_commands.md + CommonCLI.cpp + CommonRadioPrefs.cpp + example MyMesh/SensorMesh. serial_only=true: firmware only accepts it over USB serial, not remotely.",
+ "commands": [
+  {
+   "cmd": "advert",
+   "args": "",
+   "desc": "Send a flood advert",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "advert.zerohop",
+   "args": "",
+   "desc": "Send a zero-hop advert",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "board",
+   "args": "",
+   "desc": "Show hardware/manufacturer name",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "clear stats",
+   "args": "",
+   "desc": "Clear radio, packet and core stats",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "clkreboot",
+   "args": "",
+   "desc": "Reset the clock to a fixed 2024 date and reboot (no reply)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "clock",
+   "args": "",
+   "desc": "Show current node time (UTC)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "clock sync",
+   "args": "",
+   "desc": "Set the node clock from this sender's time (only moves forward)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "discover.neighbors",
+   "args": "",
+   "desc": "Send a zero-hop neighbor discovery request",
+   "node_types": [
+    "repeater"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "erase",
+   "args": "",
+   "desc": "Erase the file system / factory reset (destructive)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true,
+   "serial_only": true
+  },
+  {
+   "cmd": "eth.status",
+   "args": "",
+   "desc": "Show Ethernet status (RAK4631 + RAK13800 builds)",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get acl",
+   "args": "",
+   "desc": "List the ACL",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "serial_only": true
+  },
+  {
+   "cmd": "get adc.multiplier",
+   "args": "",
+   "desc": "Show battery ADC multiplier (0.0-10.0, 0=board default)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get advert.interval",
+   "args": "",
+   "desc": "Show zero-hop advert interval in minutes (60-240, 0=off)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get af",
+   "args": "",
+   "desc": "Show airtime factor (0-9, deprecated; use dutycycle)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get agc.reset.interval",
+   "args": "",
+   "desc": "Show AGC reset interval in seconds (0-1020, multiple of 4, 0=off)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get allow.read.only",
+   "args": "",
+   "desc": "Show read-only access flag (room server)",
+   "node_types": [
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get bootloader.ver",
+   "args": "",
+   "desc": "Show bootloader version (nRF52 only)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get bridge.baud",
+   "args": "",
+   "desc": "Show RS-232 bridge baud (9600-max)",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get bridge.channel",
+   "args": "",
+   "desc": "Show ESP-NOW bridge channel",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get bridge.delay",
+   "args": "",
+   "desc": "Show bridge delay in ms (0-10000)",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get bridge.enabled",
+   "args": "",
+   "desc": "Show bridge enabled flag",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get bridge.secret",
+   "args": "",
+   "desc": "Show ESP-NOW bridge secret (max 15 chars)",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get bridge.source",
+   "args": "",
+   "desc": "Show bridged packet source",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get bridge.type",
+   "args": "",
+   "desc": "Show compiled bridge type (rs232/espnow/none)",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get cad",
+   "args": "",
+   "desc": "Show hardware channel activity detection before tx",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get direct.txdelay",
+   "args": "",
+   "desc": "Show direct retransmit delay factor (0-2)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get dutycycle",
+   "args": "",
+   "desc": "Show duty cycle limit percent (1-100)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.15.0"
+  },
+  {
+   "cmd": "get extra.sf",
+   "args": "",
+   "desc": "Show extra spreading factors (LR2021 radios only)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get flood.advert.interval",
+   "args": "",
+   "desc": "Show flood advert interval in hours (3-168, 0=off)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get flood.max",
+   "args": "",
+   "desc": "Show max flood hop count (0-64)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get flood.max.advert",
+   "args": "",
+   "desc": "Show max flood hops for adverts (0-64)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get flood.max.unscoped",
+   "args": "",
+   "desc": "Show max flood hops for unscoped packets (0-64)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get freq",
+   "args": "",
+   "desc": "Show frequency in MHz; reboot to apply (set is serial only)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get guest.password",
+   "args": "",
+   "desc": "Show guest password",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get int.thresh",
+   "args": "",
+   "desc": "Show local interference threshold",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get lat",
+   "args": "",
+   "desc": "Show node latitude",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get lon",
+   "args": "",
+   "desc": "Show node longitude",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get loop.detect",
+   "args": "",
+   "desc": "Show flood loop detection",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.14.0"
+  },
+  {
+   "cmd": "get multi.acks",
+   "args": "",
+   "desc": "Show multi-acks support",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get name",
+   "args": "",
+   "desc": "Show node name",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get owner.info",
+   "args": "",
+   "desc": "Show owner info text ('|' becomes newline)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.12.0"
+  },
+  {
+   "cmd": "get path.hash.mode",
+   "args": "",
+   "desc": "Show advert path hash size (0=1B, 1=2B, 2=3B)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.14.0"
+  },
+  {
+   "cmd": "get prv.key",
+   "args": "",
+   "desc": "Show node private key (get is serial only); reboot to apply",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "serial_only": true
+  },
+  {
+   "cmd": "get public.key",
+   "args": "",
+   "desc": "Show node public key",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get pwrmgt.bootmv",
+   "args": "",
+   "desc": "Show boot voltage in mV",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get pwrmgt.bootreason",
+   "args": "",
+   "desc": "Show boot reset and shutdown reasons",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get pwrmgt.source",
+   "args": "",
+   "desc": "Show power source (external/battery)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get pwrmgt.support",
+   "args": "",
+   "desc": "Show whether power management is supported",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get radio",
+   "args": "",
+   "desc": "Show radio params freq,bw,sf,cr",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get radio.fem.rxgain",
+   "args": "",
+   "desc": "Show LoRa FEM rx LNA gain (supported boards only)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get radio.fem.txgain",
+   "args": "",
+   "desc": "Show LoRa FEM tx PA gain (supported boards only)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get radio.rxgain",
+   "args": "",
+   "desc": "Show radio chip rx boosted gain mode",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.14.1"
+  },
+  {
+   "cmd": "get repeat",
+   "args": "",
+   "desc": "Show packet forwarding (repeat) flag",
+   "node_types": [
+    "repeater"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get role",
+   "args": "",
+   "desc": "Show configured node role",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get rxdelay",
+   "args": "",
+   "desc": "Show rx delay base (0-20, experimental)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get tx",
+   "args": "",
+   "desc": "Show transmit power in dBm (1-22)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "get txdelay",
+   "args": "",
+   "desc": "Show flood retransmit delay factor (0-2)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "gps",
+   "args": "",
+   "desc": "Show GPS state (on/off, fix, satellites)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "gps advert",
+   "args": "",
+   "desc": "Show GPS advert policy",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "gps advert",
+   "args": "<policy>",
+   "values": [
+    "none",
+    "share",
+    "prefs"
+   ],
+   "desc": "Set GPS advert policy",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "gps diag",
+   "args": "",
+   "desc": "Show GPS diagnostics",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "gps off",
+   "args": "",
+   "desc": "Turn GPS off",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "gps on",
+   "args": "",
+   "desc": "Turn GPS on",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "gps setloc",
+   "args": "",
+   "desc": "Set node lat/lon from current GPS position",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "gps sync",
+   "args": "",
+   "desc": "Sync node clock from GPS time",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "io",
+   "args": "[value]",
+   "desc": "Read GPIO (no arg) or write hex value; prefix r/s/t resets/sets/toggles bits",
+   "node_types": [
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "log",
+   "args": "",
+   "desc": "Dump the captured rx log",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "serial_only": true
+  },
+  {
+   "cmd": "log erase",
+   "args": "",
+   "desc": "Erase the captured log",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "log start",
+   "args": "",
+   "desc": "Start capturing rx log to node storage",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "log stop",
+   "args": "",
+   "desc": "Stop capturing rx log",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "neighbor.remove",
+   "args": "<pubkey_prefix>",
+   "desc": "Remove neighbors matching a pubkey prefix",
+   "node_types": [
+    "repeater"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "neighbors",
+   "args": "",
+   "desc": "List recent neighbors (pubkey-prefix:timestamp:snr*4)",
+   "node_types": [
+    "repeater"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "password",
+   "args": "<new_password>",
+   "desc": "Change the admin password (reply echoes it)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "power",
+   "args": "",
+   "desc": "Show battery mV and USB/solar/external/charger power state",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "poweroff",
+   "args": "",
+   "desc": "Power off the node (no reply is sent)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "powersaving",
+   "args": "",
+   "desc": "Show power saving state",
+   "node_types": [
+    "repeater"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "powersaving off",
+   "args": "",
+   "desc": "Disable power saving",
+   "node_types": [
+    "repeater"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "powersaving on",
+   "args": "",
+   "desc": "Enable power saving (sleep between transmissions)",
+   "node_types": [
+    "repeater"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "reboot",
+   "args": "",
+   "desc": "Reboot the node (no reply is sent)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "region",
+   "args": "",
+   "desc": "Show region tree and flood permissions",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region allowf",
+   "args": "<name>",
+   "desc": "Allow flood for a region (* = wildcard)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region def",
+   "args": "<token> [<token> ...]",
+   "desc": "Define a region hierarchy in one line (name or name|jump)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region default",
+   "args": "",
+   "desc": "Show default scope region",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region default",
+   "args": "<name|<null>>",
+   "desc": "Set default scope region (or <null> to clear); saves immediately",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region denyf",
+   "args": "<name>",
+   "desc": "Deny flood for a region (* = wildcard)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region get",
+   "args": "<name>",
+   "desc": "Show info for a region",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region home",
+   "args": "",
+   "desc": "Show home region",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region home",
+   "args": "<name>",
+   "desc": "Set home region",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region list",
+   "args": "<filter>",
+   "values": [
+    "allowed",
+    "denied"
+   ],
+   "desc": "List regions by flood permission",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.12.0"
+  },
+  {
+   "cmd": "region load",
+   "args": "",
+   "desc": "Start bulk region load (indented lines; blank line ends)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region put",
+   "args": "<name> [parent]",
+   "desc": "Create a region (flood allowed)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region remove",
+   "args": "<name>",
+   "desc": "Remove a region (must have no children)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "region save",
+   "args": "",
+   "desc": "Save region changes to flash",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.10.0"
+  },
+  {
+   "cmd": "room.post",
+   "args": "<message>",
+   "desc": "Post a system message to the room",
+   "node_types": [
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "sensor get",
+   "args": "<key>",
+   "desc": "Get a sensor setting",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "sensor list",
+   "args": "[start]",
+   "desc": "List sensor/custom settings",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "sensor set",
+   "args": "<key> <value>",
+   "desc": "Set a sensor setting",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set adc.multiplier",
+   "args": "<value>",
+   "desc": "Set battery ADC multiplier (0.0-10.0, 0=board default)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set advert.interval",
+   "args": "<minutes>",
+   "desc": "Set zero-hop advert interval in minutes (60-240, 0=off)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set af",
+   "args": "<factor>",
+   "desc": "Set airtime factor (0-9, deprecated; use dutycycle)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set agc.reset.interval",
+   "args": "<seconds>",
+   "desc": "Set AGC reset interval in seconds (0-1020, multiple of 4, 0=off)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set allow.read.only",
+   "args": "<state>",
+   "values": [
+    "on",
+    "off"
+   ],
+   "desc": "Set read-only access flag (room server)",
+   "node_types": [
+    "room"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set bridge.baud",
+   "args": "<rate>",
+   "desc": "Set RS-232 bridge baud (9600-max)",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set bridge.channel",
+   "args": "<1-14>",
+   "desc": "Set ESP-NOW bridge channel",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set bridge.delay",
+   "args": "<ms>",
+   "desc": "Set bridge delay in ms (0-10000)",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set bridge.enabled",
+   "args": "<state>",
+   "values": [
+    "on",
+    "off"
+   ],
+   "desc": "Set bridge enabled flag",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set bridge.secret",
+   "args": "<secret>",
+   "desc": "Set ESP-NOW bridge secret (max 15 chars)",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set bridge.source",
+   "args": "<source>",
+   "values": [
+    "logRx",
+    "logTx"
+   ],
+   "desc": "Set bridged packet source",
+   "node_types": [
+    "repeater",
+    "room"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set cad",
+   "args": "<state>",
+   "values": [
+    "on",
+    "off"
+   ],
+   "desc": "Set hardware channel activity detection before tx",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set direct.txdelay",
+   "args": "<value>",
+   "desc": "Set direct retransmit delay factor (0-2)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set dutycycle",
+   "args": "<percent>",
+   "desc": "Set duty cycle limit percent (1-100)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.15.0"
+  },
+  {
+   "cmd": "set extra.sf",
+   "args": "<sf1>[,<sf2>[,<sf3>]]",
+   "desc": "Set extra spreading factors to detect (LR2021 radios only)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set flood.advert.interval",
+   "args": "<hours>",
+   "desc": "Set flood advert interval in hours (3-168, 0=off)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set flood.max",
+   "args": "<hops>",
+   "desc": "Set max flood hop count (0-64)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set flood.max.advert",
+   "args": "<hops>",
+   "desc": "Set max flood hops for adverts (0-64)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set flood.max.unscoped",
+   "args": "<hops>",
+   "desc": "Set max flood hops for unscoped packets (0-64)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set freq",
+   "args": "<mhz>",
+   "desc": "Set frequency in MHz; reboot to apply (set is serial only)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true,
+   "serial_only": true
+  },
+  {
+   "cmd": "set guest.password",
+   "args": "<password>",
+   "desc": "Set guest password",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set int.thresh",
+   "args": "<value>",
+   "desc": "Set local interference threshold",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set lat",
+   "args": "<degrees>",
+   "desc": "Set node latitude",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set lon",
+   "args": "<degrees>",
+   "desc": "Set node longitude",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set loop.detect",
+   "args": "<mode>",
+   "values": [
+    "off",
+    "minimal",
+    "moderate",
+    "strict"
+   ],
+   "desc": "Set flood loop detection",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.14.0"
+  },
+  {
+   "cmd": "set multi.acks",
+   "args": "<0|1>",
+   "values": [
+    "0",
+    "1"
+   ],
+   "desc": "Set multi-acks support",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set name",
+   "args": "<name>",
+   "desc": "Set node name",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set owner.info",
+   "args": "<text>",
+   "desc": "Set owner info text ('|' becomes newline)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.12.0"
+  },
+  {
+   "cmd": "set path.hash.mode",
+   "args": "<0|1|2>",
+   "values": [
+    "0",
+    "1",
+    "2"
+   ],
+   "desc": "Set advert path hash size (0=1B, 1=2B, 2=3B)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.14.0"
+  },
+  {
+   "cmd": "set prv.key",
+   "args": "<hex64>",
+   "desc": "Set node private key (get is serial only); reboot to apply",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set radio",
+   "args": "<freq>,<bw>,<sf>,<cr>",
+   "desc": "Set radio params (MHz, kHz, SF 5-12, CR 5-8); reboot to apply",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set radio.fem.rxgain",
+   "args": "<state>",
+   "values": [
+    "on",
+    "off"
+   ],
+   "desc": "Set LoRa FEM rx LNA gain (supported boards only)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set radio.fem.txgain",
+   "args": "<state>",
+   "values": [
+    "on",
+    "off"
+   ],
+   "desc": "Set LoRa FEM tx PA gain (supported boards only)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set radio.rxgain",
+   "args": "<state>",
+   "values": [
+    "on",
+    "off"
+   ],
+   "desc": "Set radio chip rx boosted gain mode",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "min_fw": "1.14.1"
+  },
+  {
+   "cmd": "set repeat",
+   "args": "<state>",
+   "values": [
+    "on",
+    "off"
+   ],
+   "desc": "Set packet forwarding (repeat) flag",
+   "node_types": [
+    "repeater"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set rxdelay",
+   "args": "<value>",
+   "desc": "Set rx delay base (0-20, experimental)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "set tx",
+   "args": "<dbm>",
+   "desc": "Set transmit power in dBm (1-22)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "set txdelay",
+   "args": "<value>",
+   "desc": "Set flood retransmit delay factor (0-2)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "setperm",
+   "args": "<pubkey_hex> <permissions>",
+   "desc": "Set ACL permissions for a pubkey (0 guest,1 read-only,2 read-write,3 admin)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "shutdown",
+   "args": "",
+   "desc": "Power off the node, alias of poweroff (no reply is sent)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "start ota",
+   "args": "",
+   "desc": "Start an over-the-air firmware update",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "stats-core",
+   "args": "",
+   "desc": "Show core stats: battery, uptime, queue, errors",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "serial_only": true
+  },
+  {
+   "cmd": "stats-packets",
+   "args": "",
+   "desc": "Show packet counters (received/sent)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "serial_only": true
+  },
+  {
+   "cmd": "stats-radio",
+   "args": "",
+   "desc": "Show radio stats: noise floor, RSSI/SNR, airtime",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false,
+   "serial_only": true
+  },
+  {
+   "cmd": "tempradio",
+   "args": "<freq>,<bw>,<sf>,<cr>,<timeout_mins>",
+   "desc": "Temporarily change radio params for N minutes (not saved)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": true
+  },
+  {
+   "cmd": "time",
+   "args": "<epoch_seconds>",
+   "desc": "Set node clock to a Unix epoch time (only moves forward)",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  },
+  {
+   "cmd": "ver",
+   "args": "",
+   "desc": "Show firmware version and build date",
+   "node_types": [
+    "repeater",
+    "room",
+    "sensor"
+   ],
+   "admin": true,
+   "confirm": false
+  }
+ ]
+}
