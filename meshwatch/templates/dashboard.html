@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+{% for a in system_alerts %}
+<div class="panel alert-box">⚠ {{ a.message }} <span class="muted">(since {{ a.started|age }})</span></div>
+{% endfor %}
+<div class="row" style="align-items:center">
+  <h1 style="flex:1">Watched nodes</h1>
+  <a class="button" href="/add" style="flex:0">Add node</a>
+</div>
+<div class="panel table-wrap" hx-get="/partials/nodes" hx-trigger="every 30s" hx-swap="innerHTML">
+{% include "_nodes.html" %}
+</div>
+<h2>Data sources</h2>
+<div class="stats">
+  <div class="stat"><div class="k">Companion radio</div>
+    <div class="v">{{ system.radio.state }}</div>
+    <div class="note">{{ system.radio.name or "" }}{% if system.radio.error %} · {{ system.radio.error }}{% endif %}</div></div>
+  {% for m in system.mqtt %}
+  <div class="stat"><div class="k">MQTT · {{ m.name }}</div><div class="v">{{ m.state }}</div>
+    <div class="note">{{ m.messages }} msgs · last {{ m.last_message|age }}{% if m.error %} · {{ m.error }}{% endif %}</div></div>
+  {% else %}
+  <div class="stat"><div class="k">MQTT</div><div class="v">none</div><div class="note"><a href="/settings#mqtt">Add a feed</a></div></div>
+  {% endfor %}
+  <div class="stat"><div class="k">Nodes in directory</div><div class="v">{{ system.monitor.directory }}</div>
+    <div class="note">{{ system.monitor.adverts }} adverts · {{ system.monitor.packets }} packets</div></div>
+  <div class="stat"><div class="k">Poll budget left (hour)</div><div class="v">{{ system.poller.budget_left }}</div></div>
+</div>
+{% endblock %}

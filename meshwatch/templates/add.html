@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Add a node</h1>
+<div class="panel">
+  <label for="q">Search nodes seen in adverts (name or key prefix)</label>
+  <input type="search" id="q" name="q" value="{{ q }}" autocomplete="off" placeholder="e.g. hilltop or a1b2"
+         hx-get="/partials/search" hx-trigger="input changed delay:250ms, search" hx-target="#results">
+  <div id="results" class="table-wrap">{% include "_search.html" %}</div>
+</div>
+<div class="panel" id="addform">
+  <h2>Watch this node</h2>
+  <form method="post" action="/nodes">
+    <label for="pubkey">Public key (64 hex)</label>
+    <input type="text" id="pubkey" name="pubkey" required pattern="[0-9a-fA-F]{64}" class="mono" autocomplete="off">
+    <div class="row">
+      <div><label for="label">Label (optional)</label><input type="text" id="label" name="label" maxlength="40"></div>
+      <div><label for="admin_pw">Admin password (optional)</label><input type="password" id="admin_pw" name="admin_pw" autocomplete="new-password"></div>
+      <div><label for="guest_pw">Guest password (optional)</label><input type="password" id="guest_pw" name="guest_pw" autocomplete="new-password"></div>
+    </div>
+    <p class="note">With a password, meshwatch polls the node for battery, noise floor and counters through your companion radio. The admin password also enables the remote console. Passwords are stored encrypted and never shown again.</p>
+    <button type="submit">Add</button>
+  </form>
+</div>
+{% endblock %}

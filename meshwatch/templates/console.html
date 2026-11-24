@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Console · {{ n.label }}{% endblock %}
+{% block content %}
+<div class="row" style="align-items:center">
+  <h1 style="flex:3">Console · <a href="/nodes/{{ n.pubkey }}">{{ n.label }}</a></h1>
+</div>
+{% if not n.has_admin %}
+<div class="panel alert-box">The remote console needs the node's admin password. Add it under Settings on the <a href="/nodes/{{ n.pubkey }}#admin_pw">node page</a>.</div>
+{% endif %}
+<p class="note">Commands go over the mesh through your companion radio; replies can take several seconds. Commands that change the node ask for confirmation. Everything is recorded in the audit log.</p>
+<div class="console" id="console" data-node="{{ n.pubkey }}">
+{% for e in log %}
+<div class="meta">{{ e.ts|dt }}</div>
+<div class="cmd">&gt; {{ e.detail }}</div>
+{% if e.ok %}<div class="reply">{{ e.response }}</div>{% else %}<div class="err">{{ e.response }}</div>{% endif %}
+{% endfor %}
+</div>
+<div class="prompt">
+  <div class="suggest" id="suggest" hidden></div>
+  <input type="text" id="cmd" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type a command, e.g. get radio  (Tab completes, ↑↓ choose)" aria-label="Command" {{ 'disabled' if not n.has_admin }}>
+  <div class="hint" id="hint"></div>
+</div>
+{% endblock %}

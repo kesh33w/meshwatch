@@ -1,0 +1,22 @@
+{% if nodes %}
+<table>
+<thead><tr><th>Node</th><th>State</th><th>Last heard</th><th class="hide-sm">Battery</th>
+<th class="hide-sm">Noise</th><th class="hide-sm">SNR 24h</th><th class="hide-sm">Observers</th><th class="hide-sm">Polled</th></tr></thead>
+<tbody>
+{% for n in nodes %}
+<tr>
+  <td><a href="/nodes/{{ n.pubkey }}">{{ n.label }}</a><div class="note mono">{{ n.pubkey[:8] }} · {{ n.node_type }}</div></td>
+  <td>{% if n.alerts %}{% for a in n.alerts %}<span class="badge bad" title="{{ a.message }}">{{ a.rule }}</span> {% endfor %}
+      {% elif n.last_heard %}<span class="badge ok">ok</span>{% else %}<span class="badge">waiting</span>{% endif %}</td>
+  <td>{{ n.last_heard|age }}<div class="note">{{ n.last_heard_via or "" }}</div></td>
+  <td class="hide-sm">{% if n.status.bat %}{{ "%.2f"|format(n.status.bat / 1000) }} V{% else %}—{% endif %}</td>
+  <td class="hide-sm">{% if n.status.noise_floor %}{{ n.status.noise_floor }} dBm{% else %}—{% endif %}</td>
+  <td class="hide-sm">{% if n.snr_24h is not none %}{{ n.snr_24h }} dB{% else %}—{% endif %}</td>
+  <td class="hide-sm">{{ n.observers_24h }}</td>
+  <td class="hide-sm">{% if not n.poll_enabled %}<span class="muted">off</span>{% elif n.poll_fails %}<span class="error-text">failing ×{{ n.poll_fails }}</span>{% else %}{{ n.last_poll_ok|age }}{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody></table>
+{% else %}
+<p>No nodes yet. <a href="/add">Add a node</a> by name or public key.</p>
+{% endif %}

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Alerts</h1>
+<div class="panel table-wrap">
+{% if rows %}<table><thead><tr><th>Node</th><th>Rule</th><th>Message</th><th>Started</th><th>Resolved</th></tr></thead><tbody>
+{% for a in rows %}<tr><td>{% if a.pubkey %}<a href="/nodes/{{ a.pubkey }}">{{ labels[a.pubkey] }}</a>{% else %}meshwatch{% endif %}</td>
+<td>{% if a.resolved %}{{ a.rule }}{% else %}<span class="badge bad">{{ a.rule }}</span>{% endif %}</td><td>{{ a.message }}</td><td>{{ a.started|dt }}</td><td>{{ a.resolved|dt if a.resolved else "open" }}</td></tr>{% endfor %}
+</tbody></table>{% else %}<p class="muted">No alerts.</p>{% endif %}
+</div>
+{% endblock %}

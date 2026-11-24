@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Audit log</h1>
+<div class="panel table-wrap">
+<table><thead><tr><th>When</th><th>Action</th><th>Node</th><th>Detail</th><th>Result</th><th class="hide-sm">Client</th></tr></thead><tbody>
+{% for r in rows %}<tr><td>{{ r.ts|dt }}</td><td>{{ r.action }}</td><td>{% if r.pubkey %}<a href="/nodes/{{ r.pubkey }}">{{ labels[r.pubkey] }}</a>{% endif %}</td>
+<td class="mono">{{ r.detail or "" }}</td>
+<td>{% if r.ok == 1 %}<span class="badge ok">ok</span>{% elif r.ok == 0 %}<span class="badge bad">failed</span>{% endif %}
+{% if r.response %}<div class="note mono" style="white-space:pre-wrap">{{ r.response[:300] }}</div>{% endif %}</td>
+<td class="note hide-sm">{{ r.client or "" }}</td></tr>{% endfor %}
+</tbody></table>
+</div>
+{% endblock %}

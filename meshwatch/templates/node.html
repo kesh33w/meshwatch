@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ n.label }} · meshwatch{% endblock %}
+{% block content %}
+<div class="row" style="align-items:center">
+  <div style="flex:3"><h1>{{ n.label }}</h1>
+    <div class="note mono">{{ n.pubkey }}</div>
+    <div class="note">{{ n.node_type }}{% if n.name and n.name != n.label %} · advertised as “{{ n.name }}”{% endif %}{% if n.lat %} · {{ "%.5f"|format(n.lat) }}, {{ "%.5f"|format(n.lon) }}{% endif %}</div></div>
+  <div class="actions" style="flex:2;justify-content:flex-end">
+    <button type="button" class="secondary" data-poll="{{ n.pubkey }}">Poll now</button>
+    <a class="button" href="/nodes/{{ n.pubkey }}/console">Console</a>
+  </div>
+</div>
+<p id="pollmsg" class="note"></p>
+{% for a in n.alerts %}<div class="panel alert-box">⚠ <b>{{ a.rule }}</b>: {{ a.message }} <span class="muted">(since {{ a.started|age }})</span></div>{% endfor %}
+
+<div class="stats">
+  <div class="stat"><div class="k">Last heard</div><div class="v">{{ n.last_heard|age }}</div><div class="note">{{ n.last_heard_via or "" }} · alert after {{ fmt_age(n.silent_effective_min * 60) }}</div></div>
+  <div class="stat"><div class="k">Battery</div><div class="v">{% if n.status.bat %}{{ "%.2f"|format(n.status.bat/1000) }} V{% else %}—{% endif %}</div><div class="note">alert below {{ "%.2f"|format(n.battery_mv/1000) }} V</div></div>
+  <div class="stat"><div class="k">Uptime</div><div class="v">{% if n.status.uptime %}{{ fmt_age(n.status.uptime) }}{% else %}—{% endif %}</div></div>
+  <div class="stat"><div class="k">Noise floor</div><div class="v">{% if n.status.noise_floor %}{{ n.status.noise_floor }} dBm{% else %}—{% endif %}</div></div>
+  <div class="stat"><div class="k">TX airtime</div><div class="v">{% if n.status.airtime is defined and n.status.uptime %}{{ "%.1f"|format(100 * n.status.airtime / n.status.uptime) }} %{% else %}—{% endif %}</div><div class="note">of uptime</div></div>
+  <div class="stat"><div class="k">Sent / received</div><div class="v">{% if n.status.nb_sent is defined %}{{ n.status.nb_sent }} / {{ n.status.nb_recv }}{% else %}—{% endif %}</div></div>
+  <div class="stat"><div class="k">Last RSSI / SNR at node</div><div class="v">{% if n.status.last_rssi is defined %}{{ n.status.last_rssi }} / {{ n.status.last_snr }}{% else %}—{% endif %}</div></div>
+  <div class="stat"><div class="k">Observers 24h</div><div class="v">{{ n.observers_24h }}</div><div class="note">{% if n.snr_24h is not none %}avg SNR {{ n.snr_24h }} dB{% endif %}</div></div>
+  <div class="stat"><div class="k">Polling</div><div class="v">{% if not n.poll_enabled %}off{% elif n.poll_fails %}failing{% else %}ok{% endif %}</div>
+    <div class="note">{% if n.poll_enabled %}last ok {{ n.last_poll_ok|age }}{% if n.login_role %} · {{ n.login_role }}{% endif %}{% if n.last_error %}<br><span class="error-text">{{ n.last_error }}</span>{% endif %}{% endif %}</div></div>
+</div>
+
+{% if n.telemetry %}
+<h2>Telemetry</h2>
+<div class="panel table-wrap"><table><thead><tr><th>Channel</th><th>Type</th><th>Value</th></tr></thead><tbody>
+{% for t in n.telemetry %}<tr><td>{{ t.channel }}</td><td>{{ t.type }}</td><td class="mono">{{ t.value }}</td></tr>{% endfor %}
+</tbody></table><p class="note">Updated {{ n.status_at|age }}</p></div>
+{% endif %}
+
+<h2>History</h2>
+<div class="tabs">{% for r in ranges %}<a href="?range={{ r }}" class="{{ 'on' if r == range }}">{{ r }}</a>{% endfor %}</div>
+<div class="grid">
+{% for c in charts %}
+<div class="panel"><div class="row" style="align-items:baseline"><b>{{ c.title }}</b>
+<span class="muted" style="text-align:right">{% if c.latest is not none %}{{ "%.2f"|format(c.latest) if c.unit == "V" else "%.1f"|format(c.latest) }} {{ c.unit }}{% endif %}</span></div>{{ c.svg|safe }}</div>
+{% endfor %}
+</div>
+
+<h2>Heard directly by (7 days)</h2>
+<div class="panel table-wrap">
+{% if observers %}
+<table><thead><tr><th>Observer</th><th>Region</th><th>Packets</th><th>SNR</th><th class="hide-sm">RSSI</th><th>Last</th></tr></thead><tbody>
+{% for o in observers %}<tr><td>{{ observer_names[o.observer] or "" }} <span class="mono note">{{ o.observer[:8] }}</span></td><td>{{ o.region or "" }}</td><td>{{ o.n }}</td>
+<td>{% if o.snr is not none %}{{ "%.1f"|format(o.snr) }}{% endif %}</td><td class="hide-sm">{% if o.rssi is not none %}{{ "%.0f"|format(o.rssi) }}{% endif %}</td><td>{{ o.last|age }}</td></tr>{% endfor %}
+</tbody></table>
+{% else %}<p class="muted">No observer has heard this node directly yet. Zero-hop adverts and packets it relays (when its hop prefix is unambiguous) count.</p>{% endif %}
+</div>
+
+<h2>Recent evidence</h2>
+<div class="panel table-wrap">
+{% if paths %}<table><thead><tr><th>When</th><th>Kind</th><th>Observer</th><th>Hops</th><th class="hide-sm">Path</th></tr></thead><tbody>
+{% for p in paths %}<tr><td>{{ p.ts|age }}</td><td>{{ p.kind }}</td><td class="mono">{{ p.observer[:8] }}</td><td>{{ p.hops }}</td><td class="mono hide-sm">{{ p.path or "direct" }}</td></tr>{% endfor %}
+</tbody></table>{% else %}<p class="muted">Nothing yet.</p>{% endif %}
+</div>
+
+<h2>Settings</h2>
+<div class="panel">
+<form method="post" action="/nodes/{{ n.pubkey }}/settings">
+  <div class="row">
+    <div><label for="label">Label</label><input type="text" id="label" name="label" value="{{ n.label if n.label != n.pubkey[:8] else '' }}" maxlength="40"></div>
+    <div><label for="poll_interval_min">Poll every (minutes)</label><input type="number" id="poll_interval_min" name="poll_interval_min" min="5" max="1440" value="{{ n.poll_interval_min }}"></div>
+    <div><label for="silent_min">Silent alert after (minutes, blank = auto {{ n.silent_effective_min if not n.silent_min else '' }})</label><input type="number" id="silent_min" name="silent_min" min="5" value="{{ n.silent_min or '' }}"></div>
+  </div>
+  <div class="row">
+    <div><label for="battery_mv">Low battery below (mV)</label><input type="number" id="battery_mv" name="battery_mv" min="0" max="20000" value="{{ n.battery_mv }}"></div>
+    <div><label for="snr_drop_db">SNR drop alert (dB)</label><input type="number" id="snr_drop_db" name="snr_drop_db" min="1" max="40" step="0.5" value="{{ n.snr_drop_db }}"></div>
+  </div>
+  <div class="row">
+    <div><label for="admin_pw">Admin password {% if n.has_admin %}<span class="badge ok">stored</span>{% endif %}</label>
+      <input type="password" id="admin_pw" name="admin_pw" autocomplete="new-password" placeholder="{{ 'leave blank to keep' if n.has_admin else '' }}">
+      {% if n.has_admin %}<label class="check"><input type="checkbox" name="clear_admin_pw"> remove</label>{% endif %}</div>
+    <div><label for="guest_pw">Guest password {% if n.has_guest %}<span class="badge ok">stored</span>{% endif %}</label>
+      <input type="password" id="guest_pw" name="guest_pw" autocomplete="new-password" placeholder="{{ 'leave blank to keep' if n.has_guest else '' }}">
+      {% if n.has_guest %}<label class="check"><input type="checkbox" name="clear_guest_pw"> remove</label>{% endif %}</div>
+  </div>
+  <label class="check"><input type="checkbox" name="poll_enabled" {{ 'checked' if n.poll_enabled }}> Poll status and telemetry over the mesh</label>
+  <label class="check"><input type="checkbox" name="alerts_enabled" {{ 'checked' if n.alerts_enabled }}> Send alerts</label>
+  <label for="notes">Notes</label><textarea id="notes" name="notes">{{ n.notes }}</textarea>
+  <div class="actions"><button type="submit">Save</button></div>
+</form>
+<form method="post" action="/nodes/{{ n.pubkey }}/delete" class="actions" data-confirm="Stop watching {{ n.label }} and delete its history?">
+  <button type="submit" class="danger">Stop watching</button>
+</form>
+</div>
+
+{% if alert_log %}
+<h2>Alert history</h2>
+<div class="panel table-wrap"><table><thead><tr><th>Rule</th><th>Message</th><th>Started</th><th>Resolved</th></tr></thead><tbody>
+{% for a in alert_log %}<tr><td>{{ a.rule }}</td><td>{{ a.message }}</td><td>{{ a.started|dt }}</td><td>{{ a.resolved|dt if a.resolved else "open" }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% endif %}
+{% endblock %}

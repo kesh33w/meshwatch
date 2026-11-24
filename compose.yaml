@@ -1,0 +1,18 @@
+# meshwatch: copy .env.example to .env, fill it in, then `docker compose up -d --build`.
+services:
+  meshwatch:
+    build: .
+    image: meshwatch:local
+    container_name: meshwatch
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # Only on localhost: put a reverse proxy / tunnel with TLS in front.
+      - "127.0.0.1:${MW_PUBLISH_PORT:-8790}:8790"
+    volumes:
+      - ./data:/data
+    # For a USB-serial companion radio, uncomment and set the device:
+    # devices:
+    #   - /dev/ttyACM0:/dev/ttyACM0
+    # group_add:
+    #   - dialout

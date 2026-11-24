@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block nav %}{% endblock %}
+{% block content %}
+<div class="center panel">
+  <h1>Set up meshwatch</h1>
+  <p class="muted">Register the passkey that will protect this instance. The setup token is in <code>setup-token.txt</code> in the data directory and in the container log.</p>
+  <label for="token">Setup token</label>
+  <input type="password" id="token" value="{{ token }}" autocomplete="off">
+  <label for="plabel">Passkey name</label>
+  <input type="text" id="plabel" value="iPhone" maxlength="60">
+  <div class="actions" style="justify-content:center"><button type="button" id="register" data-first="1">Create passkey</button></div>
+  <p id="msg" class="error-text"></p>
+</div>
+{% endblock %}

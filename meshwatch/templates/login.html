@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block nav %}{% endblock %}
+{% block content %}
+<div class="center panel">
+  <h1>meshwatch</h1>
+  <p class="muted">Sign in with your passkey.</p>
+  <button type="button" id="login" data-next="{{ next }}">Sign in with passkey</button>
+  <p id="msg" class="error-text"></p>
+</div>
+{% endblock %}

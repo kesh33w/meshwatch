@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Settings</h1>
+
+<h2 id="radio">Companion radio</h2>
+<div class="panel">
+<p class="note">Used for polling and the remote console. Status: <b>{{ system.radio.state }}</b>{% if system.radio.name %} · {{ system.radio.name }} <span class="mono">{{ (system.radio.public_key or "")[:12] }}</span>{% endif %}{% if system.radio.error %} · <span class="error-text">{{ system.radio.error }}</span>{% endif %} · {{ system.radio.rx_packets }} packets received</p>
+<form method="post" action="/settings/radio">
+  <div class="row">
+    <div><label for="kind">Connection</label><select id="kind" name="kind">
+      {% for k, t in [("none","Off"),("tcp","TCP (WiFi companion, openHop)"),("serial","USB serial")] %}<option value="{{ k }}" {{ 'selected' if radio_cfg.kind == k }}>{{ t }}</option>{% endfor %}</select></div>
+    <div><label for="host">TCP host</label><input type="text" id="host" name="host" value="{{ radio_cfg.host }}"></div>
+    <div><label for="port">TCP port</label><input type="number" id="port" name="port" value="{{ radio_cfg.port }}"></div>
+  </div>
+  <div class="row">
+    <div><label for="serial_port">Serial device</label><input type="text" id="serial_port" name="serial_port" value="{{ radio_cfg.serial_port }}" placeholder="/dev/ttyACM0"></div>
+    <div><label for="baud">Baud</label><input type="number" id="baud" name="baud" value="{{ radio_cfg.baud }}"></div>
+  </div>
+  <div class="actions"><button type="submit">Save and reconnect</button></div>
+</form>
+</div>
+
+<h2 id="mqtt">MQTT feeds</h2>
+<div class="panel">
+<p class="note">Any broker publishing MeshCore observer packets (<code>meshcore/&lt;IATA&gt;/&lt;observer&gt;/packets</code> with a <code>raw</code> hex field).</p>
+{% for m in mqtt %}
+{% set st = (system.mqtt | selectattr("name", "equalto", m.name) | list) %}
+<form method="post" action="/settings/mqtt" class="panel">
+  <input type="hidden" name="id" value="{{ m.id }}">
+  <div class="note">{% if st %}{{ st[0].state }} · {{ st[0].messages }} msgs{% if st[0].error %} · <span class="error-text">{{ st[0].error }}</span>{% endif %}{% else %}disabled{% endif %}</div>
+  <div class="row">
+    <div><label>Name</label><input type="text" name="name" value="{{ m.name }}"></div>
+    <div><label>URL</label><input type="text" name="url" value="{{ m.url }}"></div>
+  </div>
+  <div class="row">
+    <div><label>Username</label><input type="text" name="username" value="{{ m.username }}" autocomplete="off"></div>
+    <div><label>Password {% if m.password_enc %}<span class="badge ok">stored</span>{% endif %}</label><input type="password" name="password" autocomplete="new-password" placeholder="{{ 'leave blank to keep' if m.password_enc else '' }}"></div>
+    <div><label>Topics (comma separated)</label><input type="text" name="topics" value="{{ m.topics|join(', ') }}"></div>
+  </div>
+  <label class="check"><input type="checkbox" name="enabled" {{ 'checked' if m.enabled }}> Enabled</label>
+  <div class="actions"><button type="submit" name="action" value="save">Save</button>
+  <button type="submit" name="action" value="delete" class="danger" data-confirm-click="Remove this feed?">Remove</button></div>
+</form>
+{% endfor %}
+<form method="post" action="/settings/mqtt">
+  <b>Add feed</b>
+  <div class="row">
+    <div><label for="mname">Name</label><input type="text" id="mname" name="name" placeholder="meshfeed"></div>
+    <div><label for="murl">URL</label><input type="text" id="murl" name="url" placeholder="wss://feed.example.org/mqtt" required></div>
+  </div>
+  <div class="row">
+    <div><label for="muser">Username</label><input type="text" id="muser" name="username" autocomplete="off"></div>
+    <div><label for="mpw">Password</label><input type="password" id="mpw" name="password" autocomplete="new-password"></div>
+    <div><label for="mtopics">Topics</label><input type="text" id="mtopics" name="topics" placeholder="{{ default_topics }}"></div>
+  </div>
+  <input type="hidden" name="enabled" value="1">
+  <div class="actions"><button type="submit" name="action" value="add">Add feed</button></div>
+</form>
+</div>
+
+<h2 id="ntfy">Notifications (ntfy)</h2>
+<div class="panel">
+<p class="note">Install the ntfy app on your phone and subscribe to the same topic. On ntfy.sh, anyone who knows the topic can read it, so use a long random name, or your own server with a token.</p>
+<form method="post" action="/settings/ntfy">
+  <div class="row">
+    <div><label for="server">Server</label><input type="text" id="server" name="server" value="{{ ntfy.server }}"></div>
+    <div><label for="topic">Topic</label><input type="text" id="topic" name="topic" value="{{ ntfy.topic }}" pattern="[A-Za-z0-9_\-]{1,64}"></div>
+    <div><label for="token">Access token {% if ntfy.token_enc %}<span class="badge ok">stored</span>{% endif %}</label><input type="password" id="token" name="token" autocomplete="new-password" placeholder="optional"></div>
+  </div>
+  <label class="check"><input type="checkbox" name="enabled" {{ 'checked' if ntfy.enabled }}> Send notifications</label>
+  {% if ntfy.token_enc %}<label class="check"><input type="checkbox" name="clear_token"> Remove token</label>{% endif %}
+  <div class="actions"><button type="submit" name="action" value="save">Save</button><button type="submit" name="action" value="test" class="secondary">Save and send test</button></div>
+</form>
+</div>
+
+<h2 id="polling">Polling and alert defaults</h2>
+<div class="panel">
+<form method="post" action="/settings/polling">
+  <div class="row">
+    <div><label for="budget">Max mesh requests per hour</label><input type="number" id="budget" name="budget_per_hour" min="1" max="600" value="{{ polling.budget_per_hour }}"></div>
+    <div><label for="gap">Min seconds between requests</label><input type="number" id="gap" name="min_gap_s" min="5" max="600" value="{{ polling.min_gap_s }}"></div>
+  </div>
+  <div class="row">
+    <div><label for="psm">Silent alert, polled nodes (minutes)</label><input type="number" id="psm" name="polled_silent_min" min="10" value="{{ alerts_cfg.polled_silent_min }}"></div>
+    <div><label for="pasm">Silent alert, passive-only nodes (minutes)</label><input type="number" id="pasm" name="passive_silent_min" min="10" value="{{ alerts_cfg.passive_silent_min }}"></div>
+  </div>
+  <p class="note">A poll is a login (when needed), a status request and a telemetry request: up to 3 mesh requests per node.</p>
+  <div class="actions"><button type="submit">Save</button></div>
+</form>
+</div>
+
+<h2 id="passkeys">Passkeys</h2>
+<div class="panel">
+<table><thead><tr><th>Name</th><th>Added</th><th>Last used</th><th></th></tr></thead><tbody>
+{% for p in passkeys %}<tr><td>{{ p.label }}</td><td>{{ p.created|dt }}</td><td>{{ p.last_used|age }}</td>
+<td><form method="post" action="/settings/passkeys/{{ p.id }}/delete" class="inline" data-confirm="Remove passkey {{ p.label }}?"><button class="secondary" {{ 'disabled' if passkeys|length < 2 }}>Remove</button></form></td></tr>{% endfor %}
+</tbody></table>
+<div class="row" style="margin-top:10px"><div><label for="plabel">New passkey name</label><input type="text" id="plabel" value="" placeholder="e.g. MacBook"></div>
+<div style="flex:0"><button type="button" id="register">Add passkey</button></div></div>
+<p id="msg" class="error-text"></p>
+</div>
+
+<h2 id="tokens">API tokens</h2>
+<div class="panel">
+<p class="note">For the future iPhone app or scripts: <code>Authorization: Bearer &lt;token&gt;</code> on <code>/api/v1/…</code>. If the instance is behind Cloudflare Access, clients also need an Access service token.</p>
+{% if new_token %}<div class="panel alert-box">New token (shown once): <code>{{ new_token }}</code></div>{% endif %}
+<table><thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody>
+{% for t in tokens %}<tr><td>{{ t.label }}</td><td>{{ t.created|dt }}</td><td>{{ t.last_used|age }}</td>
+<td><form method="post" action="/settings/tokens/{{ t.id }}/delete" class="inline" data-confirm="Revoke token {{ t.label }}?"><button class="secondary">Revoke</button></form></td></tr>{% else %}<tr><td colspan="4" class="muted">None</td></tr>{% endfor %}
+</tbody></table>
+<form method="post" action="/settings/tokens" class="row" style="margin-top:10px"><div><label for="tlabel">Name</label><input type="text" id="tlabel" name="label" value="iPhone"></div><div style="flex:0"><button type="submit">Create token</button></div></form>
+</div>
+
+<form method="post" action="/logout" class="actions"><button type="submit" class="secondary">Sign out</button></form>
+{% endblock %}

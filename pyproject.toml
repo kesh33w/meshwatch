@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meshwatch"
+version = "0.1.0"
+description = "Self-hosted MeshCore node monitor, alerts and remote admin"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "jinja2>=3.1,<4",
+  "python-multipart>=0.0.9",
+  "aiomqtt>=2.3,<3",
+  "meshcore>=2.3.19,<3",
+  "webauthn>=2.2,<4",
+  "cryptography>=43",
+  "httpx>=0.27,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+meshwatch = "meshwatch.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["meshwatch*"]
+
+[tool.setuptools.package-data]
+meshwatch = ["templates/*.html", "static/*", "data/*.json"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
