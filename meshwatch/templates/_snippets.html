@@ -1,0 +1,11 @@
+<details class="panel" id="snippets">
+  <summary><b>Snippets</b> <span class="note">saved command lists; click one to run it</span></summary>
+  <div id="snippetlist" class="chips"></div>
+  <form id="snippetform" class="row">
+    <input type="hidden" name="sid" value="">
+    <div><label for="sname">Name</label><input type="text" id="sname" name="sname" maxlength="60" placeholder="e.g. Standard 909 repeater"></div>
+    <div style="flex:2"><label for="scmds">Commands, one per line</label><textarea id="scmds" name="scmds" placeholder="get tx&#10;set flood.max 8"></textarea></div>
+    <div style="flex:0"><button type="submit">Save snippet</button></div>
+  </form>
+  <p class="note">Snippets can't contain passwords. Commands that change a node still ask for confirmation (once per run).</p>
+</details>

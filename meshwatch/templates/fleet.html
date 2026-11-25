@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Fleet · meshwatch{% endblock %}
+{% block content %}
+<h1>Fleet</h1>
+<p class="note">Firmware and settings of nodes with a stored admin password, read once a day during a poll (or with “Read settings” on a node page).
+Highlighted values differ from the other nodes on the same network.
+{% if latest.versions %}Newest MeshCore release: repeater {{ latest.versions.repeater|join('.') if latest.versions.repeater else '?' }}{% if latest.versions.room %}, room server {{ latest.versions.room|join('.') }}{% endif %} (checked {{ latest.checked|age }}).{% elif check_releases %}Newest release not checked yet.{% endif %}</p>
+<form method="post" action="/fleet/releases" class="actions"><button type="submit" class="secondary">Check releases now</button></form>
+{% for g in groups %}
+<h2>{{ g.network }}</h2>
+<div class="panel table-wrap">
+<table class="fleet">
+<thead><tr><th>Node</th><th>Firmware</th>{% for k in settings_keys %}<th>{{ k }}</th>{% endfor %}<th>Read</th></tr></thead>
+<tbody>
+{% for n in g.nodes %}
+<tr><td><a href="/nodes/{{ n.pubkey }}">{{ n.label }}</a>{% if not n.admin %}<div class="note">no admin password</div>{% endif %}</td>
+<td class="{{ 'drift' if n.newer }}" title="{{ n.firmware or '' }}">{{ n.version or (n.firmware[:18] if n.firmware else '—') }}{% if n.newer %}<div class="note">{{ n.newer }} available</div>{% endif %}</td>
+{% for k in settings_keys %}<td class="mono {{ 'drift' if k in n.differs }}">{{ n.config.get(k, '—') }}</td>{% endfor %}
+<td class="note">{{ n.config_at|age }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% if g.drift %}<p class="note">Differs on this network: {{ g.drift|join(', ') }}</p>{% endif %}
+</div>
+{% else %}
+<p class="muted">No watched nodes yet.</p>
+{% endfor %}
+{% endblock %}

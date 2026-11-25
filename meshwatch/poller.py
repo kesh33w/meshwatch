@@ -15,10 +15,11 @@ import logging
 import time
 from collections import defaultdict, deque
 
-from . import config
+from . import config, firmware
 from .radio import RadioError
 
 log = logging.getLogger(__name__)
+RETRY_S = (300, 900)    # first and second retry after a failed poll
 
 
 class Poller:
@@ -134,8 +135,11 @@ class Poller:
             "SELECT w.*, s.last_login_at, s.login_role, s.login_radio, s.poll_fails FROM watched w"
             " LEFT JOIN node_state s USING(pubkey) WHERE pubkey=?", (key,))
 
-    async def poll(self, node, settings=None, radio=None) -> dict:
-        """Poll one node now. Returns a summary; records results and schedule."""
+    async def poll(self, node, settings=None, radio=None, inventory: bool | None = None) -> dict:
+        """Poll one node now. Returns a summary; records results and schedule.
+
+        With the admin password, the daily inventory (firmware + settings) rides along when due
+        (inventory=None), always (True) or never (False)."""
         settings = settings or config.get(self.db, "polling")
         key = node["pubkey"]
         node = self.node_row(key)
@@ -147,20 +151,22 @@ class Poller:
             self.current[rid] = key
             async with radio.lock:
                 contact = await radio.contact(key, self.monitor.directory.get(key))
-                await self.ensure_login(node, radio, contact, settings)
+                role = await self.ensure_login(node, radio, contact, settings)
                 self._spend(rid)
                 status = await radio.status(contact, settings["request_timeout_s"])
                 if status is None:
                     # Session may have expired on the node: log in again once.
-                    await self.ensure_login(node, radio, contact, settings, force=True)
+                    role = await self.ensure_login(node, radio, contact, settings, force=True)
                     self._spend(rid)
                     status = await radio.status(contact, settings["request_timeout_s"])
                 if status is None:
                     raise RadioError("no status response")
                 self._spend(rid)
                 lpp = await radio.telemetry(contact, settings["request_timeout_s"])
-            self._store(key, status, lpp)
-            result = {"ok": True, "status": status, "telemetry": lpp}
+                self._store(key, status, lpp)
+                result = {"ok": True, "status": status, "telemetry": lpp}
+                if role == "admin" and self._inventory_due(node, settings, rid, inventory):
+                    result["inventory"] = await self._inventory(key, radio, contact, settings)
         except RadioError as exc:
             result = {"ok": False, "error": str(exc)}
         finally:
@@ -169,6 +175,41 @@ class Poller:
         result["radio"] = rid
         self._record_outcome(node, result)
         return result
+
+    def _inventory_due(self, node, settings, rid: str, wanted: bool | None) -> bool:
+        if wanted is not None:
+            return wanted
+        state = self.db.one("SELECT config_at FROM node_state WHERE pubkey=?", (node["pubkey"],))
+        fresh = state and state["config_at"] and time.time() - state["config_at"] < firmware.INVENTORY_EVERY_S
+        # Keep room in the hourly budget for regular polls of other nodes.
+        need = len(firmware.inventory_commands(None)) + 4
+        return not fresh and self.budget_left(settings, rid) >= need
+
+    async def _inventory(self, key: str, radio, contact, settings) -> dict:
+        """Firmware version and settings via CLI `ver` / `get ...` (caller holds the radio lock)."""
+        seen = self.monitor.directory.get(key)
+        values: dict[str, str] = {}
+        timeouts = 0
+        for command in firmware.inventory_commands(seen.node_type if seen else None):
+            self._spend(radio.id)
+            try:
+                reply = await radio.cli(contact, command, settings["request_timeout_s"])
+            except RadioError:
+                timeouts += 1
+                if timeouts >= 2:       # node or path went away; try again next time
+                    break
+                continue
+            value = firmware.clean_reply(reply)
+            if value is not None:
+                values["ver" if command == "ver" else command[4:]] = value
+        if values:
+            ver = values.pop("ver", None)
+            old = self.db.one("SELECT config FROM node_state WHERE pubkey=?", (key,))
+            merged = {**(json.loads(old["config"]) if old and old["config"] else {}), **values}
+            self.db.x("UPDATE node_state SET config=?, config_at=?, firmware=COALESCE(?, firmware) WHERE pubkey=?",
+                      (json.dumps(merged), time.time(), ver, key))
+            values["ver"] = ver
+        return values
 
     def _store(self, key: str, status: dict, lpp) -> None:
         now = time.time()
@@ -195,10 +236,14 @@ class Poller:
                       (now, now, now + interval, result.get("radio"), node["pubkey"]))
         else:
             fails = (node["poll_fails"] or 0) + 1
-            delay = min(interval * 2 ** (fails - 1), settings["max_backoff_min"] * 60)
             if not node["radio_id"] and fails < len(self.radios.connected()):
                 # Automatic: try the next companion soon before backing off.
                 delay = settings["min_gap_s"]
+            elif fails <= len(RETRY_S):
+                # Single lost replies are common on the mesh: retry soon, then back off.
+                delay = min(RETRY_S[fails - 1], interval)
+            else:
+                delay = min(interval * 2 ** (fails - len(RETRY_S) - 1), settings["max_backoff_min"] * 60)
             self.db.x("UPDATE node_state SET last_poll_at=?, poll_fails=?, next_poll_at=?, last_error=?,"
                       " fail_radio=? WHERE pubkey=?",
                       (now, fails, now + delay, result["error"], result.get("radio"), node["pubkey"]))

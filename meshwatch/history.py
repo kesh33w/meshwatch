@@ -100,3 +100,18 @@ def svg_chart(points: list[tuple[float, float]], span: float, unit: str = "", wi
     title = html.escape(f"latest {fmt(latest)} {unit}".strip())
     return (f'<svg class="chart" viewBox="0 0 {width} {height}" role="img" aria-label="{title}">'
             f"<title>{title}</title>{ticks}{lines}</svg>")
+
+
+def sparkline(points: list[tuple[float, float]], span: float, width=120, height=28) -> str:
+    """Tiny axis-less line for dashboard cards; empty string without data."""
+    if len(points) < 2:
+        return ""
+    t0 = time.time() - span
+    values = [v for _, v in points]
+    lo, hi = min(values), max(values)
+    if hi - lo < 1e-9:
+        lo, hi = lo - 1, hi + 1
+    pts = " ".join(f"{(t - t0) / span * width:.1f},{2 + (hi - v) / (hi - lo) * (height - 4):.1f}" for t, v in points)
+    title = html.escape(f"{values[-1]:.2f}" if hi - lo < 5 else f"{values[-1]:.0f}")
+    return (f'<svg class="spark" viewBox="0 0 {width} {height}" preserveAspectRatio="none" role="img"'
+            f' aria-label="24 hour trend, latest {title}"><polyline class="line" points="{pts}"/></svg>')

@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS node_state (
   next_poll_at REAL, last_login_at REAL, login_role TEXT, last_error TEXT,
   status TEXT, status_at REAL, telemetry TEXT, telemetry_at REAL, firmware TEXT,
   poll_radio TEXT, login_radio TEXT,
-  fail_radio TEXT);                        -- radio of the last failed poll (automatic failover)
+  fail_radio TEXT,                         -- radio of the last failed poll (automatic failover)
+  config TEXT, config_at REAL);            -- JSON of `get` settings from the daily inventory (admin only)
 
 -- Raw data (30 days). One row per node/observer/kind per 5-minute bucket,
 -- averaged, to keep disk writes low for busy repeaters.
@@ -73,6 +74,9 @@ CREATE TABLE IF NOT EXISTS audit (
   detail TEXT, ok INTEGER, response TEXT, client TEXT);
 CREATE INDEX IF NOT EXISTS audit_node ON audit(pubkey, ts);
 
+CREATE TABLE IF NOT EXISTS cli_snippets (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, commands TEXT NOT NULL, created REAL NOT NULL);
+
 CREATE TABLE IF NOT EXISTS cli_history (
   id INTEGER PRIMARY KEY, ts REAL NOT NULL, command TEXT NOT NULL UNIQUE);
 
@@ -100,7 +104,8 @@ class DB:
 
     # Columns added after the first release (CREATE TABLE IF NOT EXISTS leaves old tables alone).
     ADDED_COLUMNS = {"watched": ["radio_id TEXT"], "seen_nodes": ["heard TEXT"],
-                     "node_state": ["poll_radio TEXT", "login_radio TEXT", "fail_radio TEXT"]}
+                     "node_state": ["poll_radio TEXT", "login_radio TEXT", "fail_radio TEXT",
+                                    "config TEXT", "config_at REAL"]}
 
     def _migrate(self) -> None:
         for table, columns in self.ADDED_COLUMNS.items():

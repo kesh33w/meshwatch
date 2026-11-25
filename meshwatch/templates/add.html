@@ -2,10 +2,23 @@
 {% block content %}
 <h1>Add a node</h1>
 <div class="panel">
-  <label for="q">Search nodes seen in adverts (name or key prefix)</label>
+  <label for="q">Search nodes seen in adverts (name or key prefix). Tick several to add them together.</label>
   <input type="search" id="q" name="q" value="{{ q }}" autocomplete="off" placeholder="e.g. hilltop or a1b2"
          hx-get="/partials/search" hx-trigger="input changed delay:250ms, search" hx-target="#results">
   <div id="results" class="table-wrap">{% include "_search.html" %}</div>
+</div>
+<div class="panel sticky-bottom" id="bulkpanel" hidden>
+  <h2>Add selected nodes (<span id="bulkcount">0</span>)</h2>
+  <div id="bulklist" class="chips"></div>
+  <form method="post" action="/nodes/bulk" id="bulkform">
+    <div id="bulkkeys"></div>
+    <div class="row">
+      <div><label for="badmin">Admin password for all (optional)</label><input type="password" id="badmin" name="admin_pw" autocomplete="new-password"></div>
+      <div><label for="bguest">Guest password for all (optional)</label><input type="password" id="bguest" name="guest_pw" autocomplete="new-password"></div>
+    </div>
+    <p class="note">Labels come from each node's advertised name. Each node's radio is picked automatically. Change either later on the node page.</p>
+    <div class="actions"><button type="submit">Add selected</button><button type="button" class="secondary" id="bulkclear">Clear selection</button></div>
+  </form>
 </div>
 <div class="panel" id="addform">
   <h2>Watch this node</h2>

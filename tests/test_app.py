@@ -121,3 +121,48 @@ def test_full_flow(client):
     client.cookies.clear()
     assert client.get("/api/v1/nodes", headers={"Authorization": f"Bearer {token}"}).status_code == 200
     assert client.get("/api/v1/nodes", headers={"Authorization": "Bearer nope"}).status_code == 401
+
+
+def test_new_pages_bulk_add_snippets_and_settings(client):
+    h = login(client)
+    keys = []
+    for name, lat in (("Alpha", 38.6), ("Bravo", 38.7)):
+        priv, pub = keypair(None)
+        client.svc.monitor.ingest(advert_packet(priv, name=name, lat=lat, lon=-121.4), "obs1", "SMF", 4.0, -97)
+        keys.append(pub)
+    r = client.post("/nodes/bulk", data={"pubkey": keys, "guest_pw": "g"}, headers=h, follow_redirects=False)
+    assert r.status_code == 303
+    rows = client.svc.db.q("SELECT pubkey, poll_enabled, guest_pw FROM watched ORDER BY pubkey")
+    assert sorted(r["pubkey"] for r in rows) == sorted(keys) and all(r["poll_enabled"] and r["guest_pw"] for r in rows)
+    assert client.post("/nodes/bulk", data={"pubkey": ["xyz"]}, headers=h).status_code == 400
+    client.svc.monitor.flush(force=True)
+    for path in ["/", "/map", "/fleet", "/console", "/settings", f"/nodes/{keys[0]}"]:
+        r = client.get(path)
+        assert r.status_code == 200, path
+    assert "tile.openstreetmap.org" in client.get("/map").headers["content-security-policy"]
+    assert "tile.openstreetmap.org" not in client.get("/").headers["content-security-policy"]
+    m = client.get("/api/v1/map").json()
+    assert {n["label"] for n in m["nodes"]} == {"Alpha", "Bravo"} and all(n["pos"] for n in m["nodes"])
+    # Snippets
+    assert client.post("/api/v1/snippets", json={"name": "x", "commands": ["password hunter2"]},
+                       headers=h).status_code == 400
+    r = client.post("/api/v1/snippets", json={"name": "Std", "commands": ["get tx", " set flood.max  8 ", ""]},
+                    headers=h)
+    assert r.status_code == 200
+    snips = client.get("/api/v1/snippets").json()["snippets"]
+    assert snips == [{"id": r.json()["id"], "name": "Std", "commands": ["get tx", "set flood.max 8"]}]
+    assert client.post(f"/api/v1/snippets/{snips[0]['id']}/delete", headers=h).json()["ok"]
+    # Secrets never reach the audit log or history, even when the command fails.
+    client.svc.db.x("UPDATE watched SET admin_pw=? WHERE pubkey=?", (client.svc.box.seal("a"), keys[0]))
+    r = client.post(f"/api/v1/nodes/{keys[0]}/cli", json={"command": "password hunter2", "confirm": True}, headers=h)
+    assert r.status_code == 200 and "hunter2" not in r.text
+    assert client.svc.db.one("SELECT COUNT(*) c FROM audit WHERE detail LIKE '%hunter2%'")["c"] == 0
+    assert client.svc.db.one("SELECT COUNT(*) c FROM cli_history WHERE command LIKE '%hunter2%'")["c"] == 0
+    # General settings
+    assert client.post("/settings/general", data={"timezone": "Mars/Base", "map_tiles": ""},
+                       headers=h).status_code == 400
+    assert client.post("/settings/general", data={"timezone": "America/Los_Angeles", "map_tiles": "",
+                       "check_releases": "on"}, headers=h, follow_redirects=False).status_code == 303
+    assert client.svc.db.get_setting("general")["timezone"] == "America/Los_Angeles"
+    assert client.post("/settings/ntfy", data={"server": "https://ntfy.sh", "topic": "t", "summary_time": "25:00"},
+                       headers=h).status_code == 400

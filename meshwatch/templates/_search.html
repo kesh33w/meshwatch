@@ -1,9 +1,10 @@
 {% if results %}
 <table>
-<thead><tr><th>Name</th><th>Type</th><th class="hide-sm">Key</th><th>Last advert</th><th></th></tr></thead>
+<thead><tr><th><span class="sr">Select</span></th><th>Name</th><th>Type</th><th class="hide-sm">Key</th><th>Last advert</th><th></th></tr></thead>
 <tbody>
 {% for r in results %}
-<tr><td>{{ r.name or "—" }}</td><td>{{ r.node_type }}</td><td class="mono hide-sm">{{ r.pubkey[:16] }}…</td>
+<tr><td>{% if r.pubkey not in watched %}<input type="checkbox" class="bulk" value="{{ r.pubkey }}" data-name="{{ r.name or r.pubkey[:8] }}" aria-label="Select {{ r.name or r.pubkey[:8] }}">{% endif %}</td>
+<td>{{ r.name or "—" }}</td><td>{{ r.node_type }}</td><td class="mono hide-sm">{{ r.pubkey[:16] }}…</td>
 <td>{{ r.last_seen|age }}</td>
 <td>{% if r.pubkey in watched %}<a href="/nodes/{{ r.pubkey }}">watching</a>{% else %}<button type="button" class="secondary" data-pick="{{ r.pubkey }}" data-name="{{ r.name or '' }}">Pick</button>{% endif %}</td></tr>
 {% endfor %}

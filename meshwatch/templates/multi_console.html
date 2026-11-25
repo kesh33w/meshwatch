@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Console · meshwatch{% endblock %}
+{% block content %}
+<h1>Console · several nodes</h1>
+<p class="note">Runs each command on every ticked node, one node at a time per radio (radios work in parallel). For <code>set</code> commands the previous value is read first and shown. Everything is recorded in the audit log. Only nodes with a stored admin password are listed.</p>
+<div class="panel" id="targets">
+{% set ns = namespace(net=None) %}
+{% for n in nodes %}
+  {% if n.network != ns.net %}{% if ns.net is not none %}</div>{% endif %}{% set ns.net = n.network %}
+  <div class="target-group"><label class="check"><input type="checkbox" class="pick-net" data-net="{{ n.network }}"> <b>{{ n.network }}</b></label>
+  {% endif %}
+  <label class="check"><input type="checkbox" class="target" value="{{ n.pubkey }}" data-net="{{ n.network }}" data-label="{{ n.label }}"> {{ n.label }} <span class="note mono">{{ n.pubkey[:8] }}</span></label>
+{% else %}
+<p class="muted">No nodes with an admin password yet.</p>
+{% endfor %}
+{% if nodes %}</div>{% endif %}
+</div>
+{% include "_snippets.html" %}
+<div class="console" id="console" data-multi="1">
+{% for e in log %}
+<div class="meta">{{ e.ts|dt }} · {{ labels.get(e.pubkey, '') }}</div>
+<div class="cmd">&gt; {{ e.detail }}</div>
+{% if e.ok %}<div class="reply">{{ e.response }}</div>{% else %}<div class="err">{{ e.response }}</div>{% endif %}
+{% endfor %}
+</div>
+<div class="prompt">
+  <div class="suggest" id="suggest" hidden></div>
+  <input type="text" id="cmd" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Command for all ticked nodes  (Tab completes, ↑↓ choose)" aria-label="Command">
+  <div class="hint" id="hint"></div>
+</div>
+{% endblock %}

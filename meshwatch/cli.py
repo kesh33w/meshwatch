@@ -44,3 +44,27 @@ def needs_confirm(command: str) -> bool:
 def serial_only(command: str) -> bool:
     entry = match(command)
     return bool(entry and entry.get("serial_only"))
+
+
+SECRET = re.compile(r"^(password\s+|set\s+\S*(?:password|secret|prv\.key)\S*\s+)(.+)$", re.I)
+SET = re.compile(r"^set\s+(\S+)\s+\S")
+
+
+def secret_value(command: str) -> str | None:
+    """The secret in commands like `password x` or `set guest.password x` (never logged)."""
+    m = SECRET.match(command.strip())
+    return m[2] if m else None
+
+
+def redact(text: str | None, secret: str | None) -> str | None:
+    if text is None or not secret:
+        return text
+    return text.replace(secret, "••••")
+
+
+def setting_key(command: str) -> str | None:
+    """`set tx 22` -> `tx`, for reading the previous value first. None for secrets."""
+    m = SET.match(command.strip().lower())
+    if not m or secret_value(command):
+        return None
+    return m[1]

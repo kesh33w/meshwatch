@@ -4,35 +4,61 @@ Rules per watched node: silent, battery, signal (SNR drop vs baseline,
 fewer observers hearing it, noise floor rise). Each rule fires once and
 notifies again when it resolves. A system rule warns when no data source has
 delivered anything for 15 minutes (silent alerts are paused meanwhile).
+
+"Silent" is confirmed before it fires: a polled node must also have failed two
+polls since it was last heard (meshwatch polls it early to find out), and the
+condition must hold for 5 minutes. A daily summary goes out at a set local time.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import statistics
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
-from . import config
+from . import config, firmware
 
 log = logging.getLogger(__name__)
 NOISE_RISE_DB = 10
 SYSTEM = ""   # pubkey used for system alerts
+CONFIRM_S = 300     # a silent condition must hold this long before it fires
+VERIFY_GAP_S = 240  # minimum time between early "is it really silent?" polls
+
+
+def tz(db) -> ZoneInfo:
+    name = config.get(db, "general").get("timezone") or "UTC"
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("UTC")
+
+
+def local(db, ts: float) -> datetime:
+    return datetime.fromtimestamp(ts, tz(db))
 
 
 class Notifier:
     def __init__(self, db, box, origin: str):
         self.db, self.box, self.origin = db, box, origin
 
-    async def send(self, title: str, message: str, priority: int = 3, tags: str = "", path: str = "/") -> str | None:
+    async def send(self, title: str, message: str, priority: int = 3, tags: str = "", path: str = "/",
+                   actions: list[tuple[str, str]] | None = None) -> str | None:
         cfg = config.get(self.db, "ntfy")
         if not cfg.get("enabled") or not cfg.get("topic"):
             return "ntfy not configured"
-        headers = {"Title": title.encode("utf-8").decode("latin-1", "replace"), "Priority": str(priority),
-                   "Click": self.origin + path}
+        # HTTP headers are latin-1; ntfy reads RFC 2047 encoded-words for anything else (emoji in labels).
+        headers = {"Title": header_text(title), "Priority": str(priority), "Click": self.origin + path}
         if tags:
             headers["Tags"] = tags
+        if actions:
+            # Only "view" actions: links open in the browser, where Cloudflare Access/passkey apply.
+            headers["Actions"] = header_text("; ".join(f"view, {label.replace(',', ' ')}, {self.origin}{url}"
+                                                       for label, url in actions))
         token = self.box.open(cfg.get("token_enc"))
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -45,6 +71,14 @@ class Notifier:
         except httpx.HTTPError as exc:
             return f"ntfy error: {exc}"
         return None
+
+
+def header_text(text: str) -> str:
+    try:
+        text.encode("latin-1")
+        return text
+    except UnicodeEncodeError:
+        return "=?UTF-8?B?" + base64.b64encode(text.encode()).decode() + "?="
 
 
 def node_label(db, monitor, pubkey: str) -> str:
@@ -65,10 +99,12 @@ def fmt_age(seconds: float) -> str:
 
 
 class Alerts:
-    def __init__(self, db, monitor, notifier, health):
+    def __init__(self, db, monitor, notifier, health, kick=None):
         self.db, self.monitor, self.notifier = db, monitor, notifier
         self.health = health            # callable -> last time any data arrived
+        self.kick = kick or (lambda: None)   # wakes the poller after an early poll was scheduled
         self._signal_checked = 0.0
+        self._pending: dict[str, float] = {}   # pubkey -> when the silent condition was first true
 
     def open_alert(self, pubkey: str, rule: str):
         return self.db.one("SELECT * FROM alerts WHERE pubkey=? AND rule=? AND resolved IS NULL", (pubkey, rule))
@@ -77,16 +113,19 @@ class Alerts:
         current = self.open_alert(pubkey, rule)
         label = node_label(self.db, self.monitor, pubkey) if pubkey else "meshwatch"
         path = f"/nodes/{pubkey}" if pubkey else "/"
+        actions = [("Open node", path), ("All alerts", "/alerts")] if pubkey else [("Open meshwatch", "/")]
         if firing and not current:
             self.db.x("INSERT INTO alerts(pubkey,rule,started,message) VALUES(?,?,?,?)",
                       (pubkey, rule, time.time(), message))
-            err = await self.notifier.send(f"{label}: {message}", message, priority, tags, path)
+            body = "\n".join([message, *self.context(pubkey)])
+            err = await self.notifier.send(f"{label}: {message}", body, priority, tags, path, actions)
             if err:
                 log.warning("notify: %s", err)
         elif not firing and current:
             self.db.x("UPDATE alerts SET resolved=? WHERE id=?", (time.time(), current["id"]))
-            err = await self.notifier.send(f"{label}: OK", f"Resolved: {current['message']}. {message}",
-                                           3, "white_check_mark", path)
+            lasted = fmt_age(time.time() - current["started"])
+            err = await self.notifier.send(f"{label}: OK", f"Resolved after {lasted}: {current['message']}. {message}",
+                                           2, "white_check_mark", path, actions)
             if err:
                 log.warning("notify: %s", err)
 
@@ -101,8 +140,8 @@ class Alerts:
         check_signal = now - self._signal_checked > 600
         if check_signal:
             self._signal_checked = now
-        for node in self.db.q("SELECT w.*, s.status, s.status_at FROM watched w LEFT JOIN node_state s USING(pubkey)"
-                              " WHERE w.alerts_enabled=1"):
+        for node in self.db.q("SELECT w.*, s.status, s.status_at, s.poll_fails, s.last_poll_at, s.next_poll_at"
+                              " FROM watched w LEFT JOIN node_state s USING(pubkey) WHERE w.alerts_enabled=1"):
             key = node["pubkey"]
             if data_ok:
                 await self._silent(node, cfg, now)
@@ -120,13 +159,116 @@ class Alerts:
         return cfg["polled_silent_min"] if node["poll_enabled"] else cfg["passive_silent_min"]
 
     async def _silent(self, node, cfg, now) -> None:
-        live = self.monitor.live.get(node["pubkey"])
+        key = node["pubkey"]
+        live = self.monitor.live.get(key)
         since = (live.last_heard if live and live.last_heard else None) or node["added_at"]
         limit = self.silent_threshold_min(node, cfg) * 60
         silent = now - since > limit
+        if not silent:
+            self._pending.pop(key, None)
+        elif not self.open_alert(key, "silent"):
+            if node["poll_enabled"] and not ((node["poll_fails"] or 0) >= 2 and (node["last_poll_at"] or 0) > since):
+                self._verify(node, now)       # ask the node before calling it silent
+                return
+            first = self._pending.setdefault(key, now)
+            if now - first < CONFIRM_S:
+                return
         msg = (f"Not heard for {fmt_age(now - since)}" if silent
                else f"Heard again ({live.last_heard_via if live else ''})")
-        await self._set(node["pubkey"], "silent", silent, msg, 4, "warning")
+        await self._set(key, "silent", silent, msg, 4, "warning")
+
+    def _verify(self, node, now) -> None:
+        """Bring the next poll forward so a silent node is confirmed (or not) quickly."""
+        if (node["next_poll_at"] or 0) <= now + 60 or now - (node["last_poll_at"] or 0) < VERIFY_GAP_S:
+            return
+        self.db.x("INSERT INTO node_state(pubkey,next_poll_at) VALUES(?,?)"
+                  " ON CONFLICT(pubkey) DO UPDATE SET next_poll_at=excluded.next_poll_at", (node["pubkey"], now))
+        self.kick()
+
+    def context(self, pubkey: str) -> list[str]:
+        """Extra lines for a node notification: how it was last heard, battery, polling."""
+        if not pubkey:
+            return []
+        lines = []
+        live = self.monitor.live.get(pubkey)
+        if live and live.last_heard:
+            lines.append(f"Last heard {fmt_age(time.time() - live.last_heard)} ago via {live.last_heard_via}")
+        state = self.db.one("SELECT status, poll_fails, last_error, last_poll_ok FROM node_state WHERE pubkey=?",
+                            (pubkey,))
+        if state and state["status"]:
+            bat = json.loads(state["status"]).get("bat") or 0
+            if bat > 0:
+                lines.append(f"Battery {bat / 1000:.2f} V")
+        if state and state["poll_fails"]:
+            lines.append(f"Polls failing ×{state['poll_fails']}: {state['last_error']}")
+        elif state and state["last_poll_ok"]:
+            lines.append(f"Last poll OK {fmt_age(time.time() - state['last_poll_ok'])} ago")
+        return lines
+
+    # daily summary -------------------------------------------------------------
+    def summary_due(self, now: float) -> bool:
+        cfg = config.get(self.db, "ntfy")
+        if not cfg.get("summary_enabled"):
+            return False
+        t = local(self.db, now)
+        try:
+            hh, mm = (int(x) for x in str(cfg.get("summary_time") or "08:00").split(":"))
+        except ValueError:
+            hh, mm = 8, 0
+        today = t.strftime("%Y-%m-%d")
+        return (t.hour, t.minute) >= (hh, mm) and self.db.get_setting("summary_sent") != today
+
+    def summary(self, now: float) -> tuple[str, str, bool]:
+        """(title, body, all_ok) for the daily summary."""
+        nodes = self.db.q("SELECT w.pubkey, w.poll_enabled, s.status, s.poll_fails, s.last_error, s.firmware"
+                          " FROM watched w LEFT JOIN node_state s USING(pubkey)")
+        open_alerts = self.db.q("SELECT pubkey, rule, message, started FROM alerts WHERE resolved IS NULL"
+                                " ORDER BY started")
+        lines = []
+        for a in open_alerts:
+            label = node_label(self.db, self.monitor, a["pubkey"]) if a["pubkey"] else "meshwatch"
+            lines.append(f"⚠ {label}: {a['message']} (for {fmt_age(now - a['started'])})")
+        failing = [n for n in nodes if n["poll_enabled"] and (n["poll_fails"] or 0) >= 2]
+        for n in failing:
+            lines.append(f"Polling failing ×{n['poll_fails']}: {node_label(self.db, self.monitor, n['pubkey'])}"
+                         f" ({n['last_error']})")
+        batteries = []
+        for n in nodes:
+            bat = json.loads(n["status"]).get("bat") if n["status"] else None
+            if bat and bat > 0:
+                batteries.append(f"{node_label(self.db, self.monitor, n['pubkey'])} {bat / 1000:.2f} V")
+        if batteries:
+            lines.append("Batteries: " + ", ".join(batteries))
+        old = []
+        for n in nodes:
+            seen = self.monitor.directory.get(n["pubkey"])
+            newer = firmware.outdated(self.db, seen.node_type if seen else None, n["firmware"])
+            if newer:
+                old.append(f"{node_label(self.db, self.monitor, n['pubkey'])} "
+                           f"{firmware.fmt_version(firmware.parse_version(n['firmware']))}")
+        if old:
+            lines.append(f"Firmware behind {firmware.fmt_version(firmware.latest_for(self.db, 'repeater'))}: "
+                         + ", ".join(old))
+        all_ok = not open_alerts and not failing
+        if all_ok:
+            title = f"meshwatch: all {len(nodes)} nodes OK"
+        else:
+            keys = {a["pubkey"] for a in open_alerts} | {n["pubkey"] for n in failing}
+            title = f"meshwatch: {len(keys)} of {len(nodes)} nodes need attention"
+            if "" in keys:
+                title = "meshwatch: data sources down" if len(keys) == 1 else title
+        return title, "\n".join(lines) or "Nothing to report.", all_ok
+
+    async def maybe_summary(self, now: float | None = None) -> None:
+        now = now or time.time()
+        if not self.summary_due(now):
+            return
+        self.db.set_setting("summary_sent", local(self.db, now).strftime("%Y-%m-%d"))
+        title, body, all_ok = self.summary(now)
+        err = await self.notifier.send(title, body, 2 if all_ok else 3, "clipboard", "/",
+                                       [("Open meshwatch", "/"), ("Fleet", "/fleet")])
+        if err:
+            log.warning("daily summary: %s", err)
 
     async def _battery(self, node) -> None:
         if not node["status"]:

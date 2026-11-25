@@ -26,6 +26,18 @@
     <div class="note">{% if n.poll_enabled %}last ok {{ n.last_poll_ok|age }}{% if n.login_role %} · {{ n.login_role }}{% endif %}{% if n.last_error %}<br><span class="error-text">{{ n.last_error }}</span>{% endif %}{% endif %}</div></div>
 </div>
 
+<h2>Firmware and settings</h2>
+<div class="panel">
+{% if n.config_at or n.firmware %}
+<div class="stats">
+  <div class="stat"><div class="k">Firmware</div><div class="v mono" style="font-size:14px">{{ n.firmware or "—" }}</div>{% if n.fw_newer %}<div class="note error-text">MeshCore {{ n.fw_newer }} is available</div>{% endif %}</div>
+  {% for k, v in n.config.items() %}<div class="stat"><div class="k">{{ k }}</div><div class="v mono" style="font-size:14px">{{ v }}</div></div>{% endfor %}
+</div>
+<p class="note">Read {{ n.config_at|age }}. Refreshed daily during a poll. <a href="/fleet">Compare with other nodes</a></p>
+{% else %}<p class="muted">{% if n.has_admin %}Not read yet; meshwatch reads firmware and settings once a day during a poll.{% else %}Needs the admin password.{% endif %}</p>{% endif %}
+{% if n.has_admin %}<div class="actions"><button type="button" class="secondary" data-inventory="{{ n.pubkey }}">Read settings now</button></div><p id="invmsg" class="note"></p>{% endif %}
+</div>
+
 {% if n.telemetry %}
 <h2>Telemetry</h2>
 <div class="panel table-wrap"><table><thead><tr><th>Channel</th><th>Type</th><th>Value</th></tr></thead><tbody>

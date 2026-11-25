@@ -7,7 +7,7 @@
   <h1 style="flex:1">Watched nodes</h1>
   <a class="button" href="/add" style="flex:0">Add node</a>
 </div>
-<div class="panel table-wrap" hx-get="/partials/nodes" hx-trigger="every 30s" hx-swap="innerHTML">
+<div class="cards" hx-get="/partials/nodes" hx-trigger="every 30s" hx-swap="innerHTML">
 {% include "_nodes.html" %}
 </div>
 <h2>Data sources</h2>

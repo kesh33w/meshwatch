@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Map · meshwatch{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/leaflet/leaflet.css?v=1.9.4">
+<script src="/static/leaflet/leaflet.js?v=1.9.4" defer></script>
+<script src="/static/map.js?v={{ version }}" defer></script>{% endblock %}
+{% block content %}
+<div class="row" style="align-items:center">
+  <h1 style="flex:3">Map</h1>
+  <div class="tabs" style="flex:0" id="mapdays">{% for d in [1, 7, 30] %}<a href="#" data-days="{{ d }}" class="{{ 'on' if d == 7 }}">{{ d }}d</a>{% endfor %}</div>
+</div>
+<div id="map" class="map" data-tiles="{{ tiles }}"></div>
+<p class="note" id="mapnote">Watched nodes (dots) and the observers that heard them directly (lines, coloured by SNR: <span class="snr-good">≥ 5 dB</span>, <span class="snr-mid">−5…5 dB</span>, <span class="snr-bad">&lt; −5 dB</span>). Positions come from adverts; nodes and observers without a location are not shown.</p>
+<div id="maplist" class="note"></div>
+{% endblock %}

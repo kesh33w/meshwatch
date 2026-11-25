@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="/static/style.css?v={{ version }}">
 <script src="/static/htmx-2.0.4.min.js" defer></script>
 <script src="/static/app.js?v={{ version }}" defer></script>
+{% block head %}{% endblock %}
 </head>
 <body>
 {% block nav %}
@@ -19,6 +20,9 @@
   <a class="brand" href="/">meshwatch</a>
   <nav>
     <a href="/">Nodes</a>
+    <a href="/map">Map</a>
+    <a href="/fleet">Fleet</a>
+    <a href="/console">Console</a>
     <a href="/add">Add</a>
     <a href="/alerts">Alerts{% if open_alerts %} <span class="badge bad">{{ open_alerts }}</span>{% endif %}</a>
     <a href="/audit">Audit</a>

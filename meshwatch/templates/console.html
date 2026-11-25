@@ -7,8 +7,9 @@
 {% if not n.has_admin %}
 <div class="panel alert-box">The remote console needs the node's admin password. Add it under Settings on the <a href="/nodes/{{ n.pubkey }}#admin_pw">node page</a>.</div>
 {% endif %}
-<p class="note">Commands go over the mesh through your companion radio; replies can take several seconds. Commands that change the node ask for confirmation. Everything is recorded in the audit log.</p>
-<div class="console" id="console" data-node="{{ n.pubkey }}">
+<p class="note">Commands go over the mesh through your companion radio; replies can take several seconds. Commands that change the node ask for confirmation; for <code>set</code> commands the previous value is read first and shown. Everything is recorded in the audit log.</p>
+{% include "_snippets.html" %}
+<div class="console" id="console" data-node="{{ n.pubkey }}" data-label="{{ n.label }}">
 {% for e in log %}
 <div class="meta">{{ e.ts|dt }}</div>
 <div class="cmd">&gt; {{ e.detail }}</div>

@@ -16,8 +16,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import __version__, cli, config, history, maintenance
-from .alerts import Alerts, Notifier, fmt_age, node_label
+from urllib.parse import urlparse
+
+from . import __version__, cli, config, firmware, history, maintenance
+from .alerts import Alerts, Notifier, fmt_age, local, node_label
 from .auth import SESSION_COOKIE, SESSION_DAYS, Auth
 from .crypto import Box
 from .db import DB
@@ -47,7 +49,7 @@ class Services:
         self.sources = Sources(self.monitor, self.box)
         self.poller = Poller(self.db, self.box, self.radios, self.monitor)
         self.notifier = Notifier(self.db, self.box, env.origin)
-        self.alerts = Alerts(self.db, self.monitor, self.notifier, self.last_data)
+        self.alerts = Alerts(self.db, self.monitor, self.notifier, self.last_data, kick=self.poller.kick)
         self.tasks: list[asyncio.Task] = []
 
     def _radio_rx(self, radio, raw, snr, rssi) -> None:
@@ -94,10 +96,21 @@ class Services:
     async def _minute(self) -> None:
         self.monitor.flush()
         await self.alerts.evaluate()
+        await self.alerts.maybe_summary()
 
     async def _hourly(self) -> None:
         maintenance.rollup(self.db)
         maintenance.prune(self.db)
+        if config.get(self.db, "general").get("check_releases"):
+            checked = (self.db.get_setting("fw_latest") or {}).get("checked") or 0
+            if time.time() - checked > 86400:
+                await firmware.fetch_latest(self.db)
+
+    def tile_origin(self) -> str:
+        """Origin of the map tile server, for the page's Content-Security-Policy."""
+        url = urlparse(config.get(self.db, "general").get("map_tiles") or "")
+        host = (url.hostname or "").replace("{s}", "*")
+        return f"https://{host}" if url.scheme == "https" and host else ""
 
 
 def create_app(env=None) -> FastAPI:
@@ -107,6 +120,7 @@ def create_app(env=None) -> FastAPI:
     async def lifespan(app):
         svc = Services(env)
         app.state.svc = svc
+        templates.env.globals["dt_db"] = svc.db     # page times in the configured timezone
         await svc.start()
         try:
             yield
@@ -119,7 +133,15 @@ def create_app(env=None) -> FastAPI:
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.globals.update(version=__version__, fmt_age=fmt_age)
     templates.env.filters["age"] = lambda ts: "never" if not ts else fmt_age(max(0, time.time() - ts)) + " ago"
-    templates.env.filters["dt"] = lambda ts: time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "—"
+    templates.env.globals["dt_db"] = None
+
+    def dt(ts, fmt="%Y-%m-%d %H:%M"):
+        db = templates.env.globals["dt_db"]
+        if not ts:
+            return "—"
+        return local(db, ts).strftime(fmt) if db else time.strftime(fmt, time.localtime(ts))
+
+    templates.env.filters["dt"] = dt
 
     def svc(request: Request) -> Services:
         return request.app.state.svc
@@ -146,7 +168,7 @@ def create_app(env=None) -> FastAPI:
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault(
             "Content-Security-Policy",
-            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+            f"default-src 'self'; img-src 'self' data: {s.tile_origin() if path == '/map' else ''}; style-src 'self' 'unsafe-inline'; "
             "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
         return response
 
@@ -284,7 +306,16 @@ def create_app(env=None) -> FastAPI:
             "alerts": alerts, "observers_24h": recent["obs"] or 0,
             "snr_24h": round(recent["snr"], 1) if recent["snr"] is not None else None,
             "best_snr_24h": recent["best"], "added_at": row["added_at"],
+            "firmware": state["firmware"] if state else None,
+            "fw_newer": fmt_v(firmware.outdated(s.db, seen.node_type if seen else None,
+                                                state["firmware"] if state else None)),
+            "config": json.loads(state["config"]) if state and state["config"] else {},
+            "config_at": state["config_at"] if state else None,
+            "problem": bool(alerts) or (bool(row["poll_enabled"]) and (state["poll_fails"] if state else 0) >= 2),
         }
+
+    def fmt_v(v):
+        return firmware.fmt_version(v) if v else None
 
     def auto_radio(s: Services, row) -> str | None:
         """Name of the companion Automatic would use now (None when pinned or none is connected)."""
@@ -303,7 +334,15 @@ def create_app(env=None) -> FastAPI:
 
     def all_nodes(s: Services) -> list[dict]:
         nodes = [node_view(s, r) for r in s.db.q("SELECT * FROM watched")]
-        return sorted(nodes, key=lambda n: (not n["alerts"], n["label"].lower()))
+        return sorted(nodes, key=lambda n: (not n["alerts"], not n["problem"], n["label"].lower()))
+
+    def with_sparks(s: Services, nodes: list[dict]) -> list[dict]:
+        """Adds 24 h sparklines (SNR heard by observers, battery) for the dashboard cards."""
+        span = history.RANGES["24h"]
+        for n in nodes:
+            n["spark_snr"] = history.sparkline(history.series(s.db, n["pubkey"], "snr", "24h"), span)
+            n["spark_bat"] = history.sparkline(history.series(s.db, n["pubkey"], "bat", "24h"), span)
+        return nodes
 
     def system_status(s: Services) -> dict:
         return {
@@ -322,13 +361,17 @@ def create_app(env=None) -> FastAPI:
     async def dashboard(request: Request):
         s = svc(request)
         system_alerts = s.db.q("SELECT * FROM alerts WHERE pubkey='' AND resolved IS NULL")
-        return page(request, "dashboard.html", nodes=all_nodes(s), system=system_status(s),
-                    system_alerts=system_alerts)
+        return page(request, "dashboard.html", nodes=with_sparks(s, all_nodes(s)), system=system_status(s),
+                    system_alerts=system_alerts, radio_names=radio_names(s))
 
     @app.get("/partials/nodes", response_class=HTMLResponse)
     async def nodes_partial(request: Request):
         s = svc(request)
-        return templates.TemplateResponse(request, "_nodes.html", {"nodes": all_nodes(s)})
+        return templates.TemplateResponse(request, "_nodes.html", {"nodes": with_sparks(s, all_nodes(s)),
+                                                                   "radio_names": radio_names(s)})
+
+    def radio_names(s: Services) -> dict[str, str]:
+        return {r["id"]: r.get("name") or r["id"] for r in config.radios(s.db)}
 
     @app.get("/add", response_class=HTMLResponse)
     async def add_page(request: Request, q: str = ""):
@@ -357,6 +400,30 @@ def create_app(env=None) -> FastAPI:
         s.poller.kick()
         return RedirectResponse(f"/nodes/{key}", status_code=303)
 
+    @app.post("/nodes/bulk")
+    async def add_nodes(request: Request):
+        """Watch several nodes picked from search at once, optionally with shared passwords."""
+        s = svc(request)
+        form = await request.form()
+        keys = sorted({str(k).strip().lower() for k in form.getlist("pubkey")})
+        if not keys or any(not PUBKEY.match(k) for k in keys):
+            raise HTTPException(400, "Pick at least one node")
+        if len(keys) > 100:
+            raise HTTPException(400, "At most 100 nodes at once")
+        admin_pw, guest_pw = str(form.get("admin_pw") or ""), str(form.get("guest_pw") or "")
+        poll = 1 if (admin_pw or guest_pw) else 0
+        added = 0
+        for key in keys:
+            cur = s.db.x("INSERT INTO watched(pubkey,added_at,admin_pw,guest_pw,poll_enabled) VALUES(?,?,?,?,?)"
+                         " ON CONFLICT(pubkey) DO NOTHING",
+                         (key, time.time(), s.box.seal(admin_pw), s.box.seal(guest_pw), poll))
+            if cur.rowcount:
+                added += 1
+                s.db.audit("watch_add", key, "bulk", True, client=client_desc(request))
+        s.monitor.reload_watched()
+        s.poller.kick()
+        return RedirectResponse("/", status_code=303)
+
     @app.get("/nodes/{key}", response_class=HTMLResponse)
     async def node_page(request: Request, key: str, range: str = "24h"):
         s = svc(request)
@@ -374,8 +441,10 @@ def create_app(env=None) -> FastAPI:
             " SUM(rssi*n)/SUM(n) AS rssi, MAX(ts) AS last FROM observations"
             " WHERE pubkey=? AND direct=1 AND ts>? GROUP BY observer ORDER BY last DESC LIMIT 40",
             (key, time.time() - 7 * 86400))
-        observer_names = {o["observer"]: (s.monitor.directory[o["observer"]].name
-                                          if o["observer"] in s.monitor.directory else None) for o in observers}
+        # MQTT observer ids are often upper-case hex; the advert directory is lower-case.
+        observer_names = {o["observer"]: (s.monitor.directory[o["observer"].lower()].name
+                                          if o["observer"].lower() in s.monitor.directory else None)
+                          for o in observers}
         paths = s.db.q("SELECT ts, kind, observer, hops, path, snr FROM observations WHERE pubkey=?"
                        " ORDER BY ts DESC LIMIT 25", (key,))
         alert_log = s.db.q("SELECT * FROM alerts WHERE pubkey=? ORDER BY started DESC LIMIT 20", (key,))
@@ -469,6 +538,123 @@ def create_app(env=None) -> FastAPI:
         log_rows = s.db.q("SELECT * FROM audit WHERE pubkey=? AND action='cli' ORDER BY ts DESC LIMIT 50", (key,))
         return page(request, "console.html", n=node_view(s, row), log=list(reversed(log_rows)))
 
+    @app.post("/nodes/{key}/inventory")
+    async def node_inventory(request: Request, key: str):
+        """Poll now and read firmware + settings (admin password needed)."""
+        s = svc(request)
+        row = watched_row(s, key)
+        if not row["admin_pw"]:
+            raise HTTPException(400, "Reading settings needs the node's admin password")
+        try:
+            radio = s.poller.choose(row)
+        except RadioError as exc:
+            raise HTTPException(503, str(exc)) from None
+        result = await s.poller.poll(row, radio=radio, inventory=True)
+        s.db.audit("inventory", key, None, result["ok"], result.get("error"), client_desc(request))
+        if request.headers.get("hx-request") or request.headers.get("accept", "").startswith("application/json"):
+            return JSONResponse({"ok": result["ok"], "error": result.get("error"),
+                                 "values": result.get("inventory")})
+        return RedirectResponse(f"/nodes/{key}", status_code=303)
+
+    @app.get("/map", response_class=HTMLResponse)
+    async def map_page(request: Request):
+        s = svc(request)
+        return page(request, "map.html", tiles=config.get(s.db, "general").get("map_tiles") or "")
+
+    def located(seen) -> tuple[float, float] | None:
+        if seen and seen.lat is not None and seen.lon is not None and (abs(seen.lat) > 0.01 or abs(seen.lon) > 0.01):
+            return seen.lat, seen.lon
+        return None
+
+    @app.get("/api/v1/map")
+    async def api_map(request: Request, days: int = 7):
+        """Watched nodes with positions, and the observers that heard each one directly."""
+        s = svc(request)
+        days = max(1, min(days, 30))
+        companions = {r.public_key: r.name for r in s.radios if r.public_key}
+        nodes, links, observers = [], [], {}
+        for n in all_nodes(s):
+            pos = located(s.monitor.directory.get(n["pubkey"]))
+            nodes.append({"pubkey": n["pubkey"], "label": n["label"], "pos": pos,
+                          "state": "alert" if n["alerts"] else ("problem" if n["problem"] else
+                                                                ("ok" if n["last_heard"] else "waiting")),
+                          "alerts": [a["message"] for a in n["alerts"]], "last_heard": n["last_heard"],
+                          "bat": n["status"].get("bat"), "snr_24h": n["snr_24h"], "observers_24h": n["observers_24h"]})
+            for o in s.db.q("SELECT observer, SUM(n) AS n, SUM(snr*n)/SUM(n) AS snr, MAX(ts) AS last"
+                            " FROM observations WHERE pubkey=? AND direct=1 AND ts>? GROUP BY observer",
+                            (n["pubkey"], time.time() - days * 86400)):
+                okey = o["observer"].lower()
+                seen = s.monitor.directory.get(okey)
+                opos = located(seen)
+                if opos is None:
+                    continue
+                observers[o["observer"]] = {"pubkey": o["observer"], "pos": opos,
+                                            "name": companions.get(okey) or (seen.name if seen else None)}
+                links.append({"node": n["pubkey"], "observer": o["observer"], "n": o["n"],
+                              "snr": round(o["snr"], 1) if o["snr"] is not None else None, "last": o["last"]})
+        return {"nodes": nodes, "observers": list(observers.values()), "links": links, "days": days}
+
+    @app.get("/fleet", response_class=HTMLResponse)
+    async def fleet_page(request: Request):
+        s = svc(request)
+        latest = s.db.get_setting("fw_latest") or {}
+        return page(request, "fleet.html", groups=firmware.fleet(s.db, s.monitor, radio_names(s)),
+                    settings_keys=firmware.SETTINGS, latest=latest,
+                    check_releases=config.get(s.db, "general").get("check_releases"))
+
+    @app.post("/fleet/releases")
+    async def fleet_releases(request: Request):
+        s = svc(request)
+        if await firmware.fetch_latest(s.db) is None:
+            raise HTTPException(502, "Could not read MeshCore releases from GitHub")
+        return RedirectResponse("/fleet", status_code=303)
+
+    @app.get("/console", response_class=HTMLResponse)
+    async def multi_console_page(request: Request):
+        s = svc(request)
+        nodes = [n for n in all_nodes(s) if n["has_admin"]]
+        names = radio_names(s)
+        for n in nodes:
+            n["network"] = names.get(n["radio_id"] or "") or n["auto_radio"] or names.get(n["poll_radio"] or "") or "?"
+        nodes.sort(key=lambda n: (n["network"], n["label"].lower()))
+        log_rows = s.db.q("SELECT * FROM audit WHERE action='cli' ORDER BY ts DESC LIMIT 40")
+        labels = {r["pubkey"]: node_label(s.db, s.monitor, r["pubkey"]) for r in log_rows if r["pubkey"]}
+        return page(request, "multi_console.html", nodes=nodes, log=list(reversed(log_rows)), labels=labels)
+
+    @app.get("/api/v1/snippets")
+    async def api_snippets(request: Request):
+        s = svc(request)
+        return {"snippets": [{"id": r["id"], "name": r["name"], "commands": r["commands"].split("\n")}
+                             for r in s.db.q("SELECT * FROM cli_snippets ORDER BY name")]}
+
+    @app.post("/api/v1/snippets")
+    async def api_snippet_save(request: Request):
+        s = svc(request)
+        body = await request.json()
+        name = " ".join(str(body.get("name", "")).split())[:60]
+        commands = [" ".join(str(c).split())[:160] for c in body.get("commands") or [] if str(c).strip()]
+        if not name or not commands:
+            raise HTTPException(400, "A snippet needs a name and at least one command")
+        if len(commands) > 20:
+            raise HTTPException(400, "At most 20 commands per snippet")
+        if any(cli.secret_value(c) for c in commands):
+            raise HTTPException(400, "Snippets cannot contain passwords or secrets")
+        sid = body.get("id")
+        if sid:
+            s.db.x("UPDATE cli_snippets SET name=?, commands=? WHERE id=?", (name, "\n".join(commands), int(sid)))
+        else:
+            sid = s.db.x("INSERT INTO cli_snippets(name,commands,created) VALUES(?,?,?)",
+                         (name, "\n".join(commands), time.time())).lastrowid
+        s.db.audit("snippet_saved", None, name, True, client=client_desc(request))
+        return {"ok": True, "id": sid}
+
+    @app.post("/api/v1/snippets/{sid}/delete")
+    async def api_snippet_delete(request: Request, sid: int):
+        s = svc(request)
+        s.db.x("DELETE FROM cli_snippets WHERE id=?", (sid,))
+        s.db.audit("snippet_removed", None, str(sid), True, client=client_desc(request))
+        return {"ok": True}
+
     @app.get("/alerts", response_class=HTMLResponse)
     async def alerts_page(request: Request):
         s = svc(request)
@@ -491,6 +677,7 @@ def create_app(env=None) -> FastAPI:
         response = page(request, "settings.html",
                     mqtt=config.get(s.db, "mqtt_sources"), radios_cfg=config.radios(s.db),
                     ntfy=config.get(s.db, "ntfy"), polling=config.get(s.db, "polling"),
+                    general=config.get(s.db, "general"),
                     alerts_cfg=config.get(s.db, "alerts"), system=system_status(s),
                     passkeys=s.db.q("SELECT * FROM credentials ORDER BY created"),
                     tokens=s.db.q("SELECT * FROM api_tokens ORDER BY created"),
@@ -578,7 +765,11 @@ def create_app(env=None) -> FastAPI:
         topic = str(form.get("topic", "")).strip()
         if topic and not re.match(r"^[A-Za-z0-9_-]{1,64}$", topic):
             raise HTTPException(400, "Topic may contain letters, digits, - and _ only")
-        cfg.update(server=server, topic=topic, enabled=bool(form.get("enabled")))
+        summary_time = str(form.get("summary_time") or "08:00").strip()
+        if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", summary_time):
+            raise HTTPException(400, "Summary time must be HH:MM (24 h)")
+        cfg.update(server=server, topic=topic, enabled=bool(form.get("enabled")),
+                   summary_enabled=bool(form.get("summary_enabled")), summary_time=summary_time)
         if form.get("token"):
             cfg["token_enc"] = s.box.seal(str(form.get("token")))
         elif form.get("clear_token"):
@@ -590,7 +781,33 @@ def create_app(env=None) -> FastAPI:
             s.db.audit("ntfy_test", None, None, err is None, err, client_desc(request))
             if err:
                 raise HTTPException(502, err)
+        elif form.get("action") == "summary":
+            title, body, all_ok = s.alerts.summary(time.time())
+            err = await s.notifier.send(title, body, 2 if all_ok else 3, "clipboard", "/",
+                                        [("Open meshwatch", "/"), ("Fleet", "/fleet")])
+            if err:
+                raise HTTPException(502, err)
         return back("ntfy")
+
+    @app.post("/settings/general")
+    async def settings_general(request: Request):
+        s = svc(request)
+        form = await request.form()
+        cfg = config.get(s.db, "general")
+        name = str(form.get("timezone") or "UTC").strip()
+        try:
+            from zoneinfo import ZoneInfo
+            ZoneInfo(name)
+        except Exception:  # noqa: BLE001 - any invalid name
+            raise HTTPException(400, f"Unknown timezone {name!r} (use a name like America/Los_Angeles)") from None
+        tiles = str(form.get("map_tiles") or "").strip()
+        if tiles and not (tiles.startswith("https://") and "{z}" in tiles and "{x}" in tiles and "{y}" in tiles):
+            raise HTTPException(400, "Map tiles must be an https URL with {z}, {x} and {y}")
+        cfg.update(timezone=name, map_tiles=tiles or config.DEFAULTS["general"]["map_tiles"],
+                   check_releases=bool(form.get("check_releases")))
+        s.db.set_setting("general", cfg)
+        s.db.audit("settings_general", None, json.dumps(cfg)[:300], True, client=client_desc(request))
+        return back("general")
 
     @app.post("/settings/polling")
     async def settings_polling(request: Request):
@@ -704,6 +921,9 @@ def create_app(env=None) -> FastAPI:
         settings = config.get(s.db, "polling")
         node = s.poller.node_row(key)
         started = time.time()
+        secret = cli.secret_value(command)
+        setting = cli.setting_key(command)
+        previous = None
         try:
             radio = s.poller.choose(node)
             async with radio.lock:
@@ -711,17 +931,39 @@ def create_app(env=None) -> FastAPI:
                 role = await s.poller.ensure_login(node, radio, contact, settings)
                 if role != "admin":
                     raise RadioError("logged in without admin rights; check the admin password")
+                if setting and body.get("previous", True):
+                    # Read the current value first so the console and audit log show what changed.
+                    s.poller._spend(radio.id)
+                    with contextlib.suppress(RadioError):
+                        previous = firmware.clean_reply(
+                            await radio.cli(contact, f"get {setting}", settings["request_timeout_s"]))
                 s.poller._spend(radio.id)
                 reply = await radio.cli(contact, command, settings["request_timeout_s"])
             ok, error = True, None
         except RadioError as exc:
             reply, ok, error = "", False, str(exc)
-        s.db.audit("cli", key, command, ok, reply if ok else error, client_desc(request))
-        s.db.x("INSERT INTO cli_history(ts,command) VALUES(?,?) ON CONFLICT(command) DO UPDATE SET ts=excluded.ts",
-               (time.time(), command))
+        reply = cli.redact(reply, secret)
+        logged = cli.redact(command, secret)
+        if previous is not None:
+            logged += f"  (was {previous})"
+        s.db.audit("cli", key, logged, ok, reply if ok else error, client_desc(request))
+        if not secret:
+            s.db.x("INSERT INTO cli_history(ts,command) VALUES(?,?)"
+                   " ON CONFLICT(command) DO UPDATE SET ts=excluded.ts", (time.time(), command))
         if ok:
             s.monitor.heard_by_poll(key, time.time())
-        return {"ok": ok, "command": command, "reply": reply, "error": error,
-                "elapsed_s": round(time.time() - started, 1)}
+            if setting and (reply or "").strip().upper().startswith("OK"):
+                remember_setting(s, key, setting, command.split(None, 2)[2])
+        return {"ok": ok, "command": cli.redact(command, secret), "reply": reply, "error": error,
+                "previous": previous, "elapsed_s": round(time.time() - started, 1)}
+
+    def remember_setting(s: Services, key: str, setting: str, value: str) -> None:
+        """Keep the fleet view current after a successful `set` from the console."""
+        if setting not in firmware.SETTINGS:
+            return
+        row = s.db.one("SELECT config FROM node_state WHERE pubkey=?", (key,))
+        cfg = json.loads(row["config"]) if row and row["config"] else {}
+        cfg[setting] = value.strip()
+        s.db.x("UPDATE node_state SET config=? WHERE pubkey=?", (json.dumps(cfg), key))
 
     return app

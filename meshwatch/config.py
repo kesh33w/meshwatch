@@ -45,7 +45,12 @@ DEFAULTS = {
     # [{id,name,kind,host,port,serial_port,baud,regions:[...]}]; one per network/frequency
     "radios": [],
     "radio": {"kind": "none", "host": "", "port": 5000, "serial_port": "", "baud": 115200},  # pre-0.2, migrated
-    "ntfy": {"server": "https://ntfy.sh", "topic": "", "token_enc": None, "enabled": False},
+    "ntfy": {"server": "https://ntfy.sh", "topic": "", "token_enc": None, "enabled": False,
+             "summary_enabled": True, "summary_time": "08:00"},
+    # timezone: IANA name used for times on pages and the daily summary
+    "general": {"timezone": os.environ.get("TZ") or "UTC",
+                "map_tiles": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                "check_releases": True},
     "polling": {"budget_per_hour": 20, "min_gap_s": 15, "max_backoff_min": 360,
                 "login_max_age_min": 180, "request_timeout_s": 30},
     "alerts": {"passive_silent_min": 1500, "polled_silent_min": 90,

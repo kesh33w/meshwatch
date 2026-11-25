@@ -12,8 +12,18 @@ nodes **you** care about. Each person runs their own instance with their own wat
   battery, uptime, noise floor, airtime, packet counters and telemetry.
 - **Alerts** via [ntfy](https://ntfy.sh): node silent, low battery, SNR drop versus its
   7-day baseline, fewer observers hearing it, noise floor rise, and "no data at all".
+  A polled node only counts as silent after two failed polls since it was last heard
+  (meshwatch polls it early to check). Optional daily summary at a set local time.
+- **Dashboard cards** with 24 h battery and SNR sparklines, problems first, and a **map** of
+  your nodes and the observers that hear them directly (Leaflet + OpenStreetMap tiles).
+- **Fleet view**: once a day meshwatch reads firmware (`ver`) and key settings (`get tx`,
+  `get flood.max`, …) from nodes it has the admin password for, flags firmware older than the
+  newest MeshCore release on GitHub, and highlights settings that differ between nodes on the
+  same network.
 - **Remote admin console** with autocomplete for every MeshCore repeater/room/sensor CLI
-  command, argument hints, confirmation for disruptive commands, and an audit log.
+  command, argument hints, confirmation for disruptive commands, and an audit log. Run a
+  command or a saved snippet on several nodes at once; `set` commands show the previous value.
+  Passwords in commands are never written to the audit log or history.
 - **History**: raw data 30 days, hourly rollups 1 year, charts per node.
 - **Passkey login** (single owner), API tokens for scripts and the planned iPhone app,
   JSON API at `/api/v1/…`.
@@ -56,7 +66,7 @@ Open the setup link, create your passkey, then in **Settings**:
 2. **MQTT feeds**: e.g. `wss://broker.example.org/mqtt` with your credentials.
 3. **Notifications**: an ntfy server + topic; subscribe to it in the ntfy phone app.
 
-Then **Add** nodes by searching names seen in adverts or pasting a public key. Add the
+Then **Add** nodes by searching names seen in adverts (tick several to add them together) or pasting a public key. Add the
 admin password to enable polling with full stats and the console, or a guest password for
 read-only polling.
 

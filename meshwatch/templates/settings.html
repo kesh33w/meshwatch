@@ -77,8 +77,13 @@
     <div><label for="token">Access token {% if ntfy.token_enc %}<span class="badge ok">stored</span>{% endif %}</label><input type="password" id="token" name="token" autocomplete="new-password" placeholder="optional"></div>
   </div>
   <label class="check"><input type="checkbox" name="enabled" {{ 'checked' if ntfy.enabled }}> Send notifications</label>
+  <div class="row">
+    <div><label class="check"><input type="checkbox" name="summary_enabled" {{ 'checked' if ntfy.summary_enabled }}> Daily summary at</label></div>
+    <div><label for="summary_time" class="sr">Summary time</label><input type="text" id="summary_time" name="summary_time" value="{{ ntfy.summary_time }}" pattern="[0-2][0-9]:[0-5][0-9]" inputmode="numeric" placeholder="08:00"></div>
+  </div>
+  <p class="note">Alerts open the node page and offer “Open node” / “All alerts” buttons. Resolved alerts arrive quietly (low priority). The summary uses the timezone under General ({{ general.timezone }}).</p>
   {% if ntfy.token_enc %}<label class="check"><input type="checkbox" name="clear_token"> Remove token</label>{% endif %}
-  <div class="actions"><button type="submit" name="action" value="save">Save</button><button type="submit" name="action" value="test" class="secondary">Save and send test</button></div>
+  <div class="actions"><button type="submit" name="action" value="save">Save</button><button type="submit" name="action" value="test" class="secondary">Save and send test</button><button type="submit" name="action" value="summary" class="secondary">Save and send summary now</button></div>
 </form>
 </div>
 
@@ -94,6 +99,19 @@
     <div><label for="pasm">Silent alert, passive-only nodes (minutes)</label><input type="number" id="pasm" name="passive_silent_min" min="10" value="{{ alerts_cfg.passive_silent_min }}"></div>
   </div>
   <p class="note">A poll is a login (when needed), a status request and a telemetry request: up to 3 mesh requests per node.</p>
+  <div class="actions"><button type="submit">Save</button></div>
+</form>
+</div>
+
+<h2 id="general">General</h2>
+<div class="panel">
+<form method="post" action="/settings/general">
+  <div class="row">
+    <div><label for="timezone">Timezone (IANA name)</label><input type="text" id="timezone" name="timezone" value="{{ general.timezone }}" placeholder="America/Los_Angeles"></div>
+    <div><label for="map_tiles">Map tiles URL</label><input type="text" id="map_tiles" name="map_tiles" value="{{ general.map_tiles }}"></div>
+  </div>
+  <label class="check"><input type="checkbox" name="check_releases" {{ 'checked' if general.check_releases }}> Check GitHub daily for the newest MeshCore release (for the Fleet page)</label>
+  <p class="note">Times on pages and the daily summary use this timezone. The default map uses OpenStreetMap tiles, loaded by your browser.</p>
   <div class="actions"><button type="submit">Save</button></div>
 </form>
 </div>

@@ -36,6 +36,14 @@ class FakeRadio:
     async def telemetry(self, contact, timeout):
         return None
 
+    replies = {"ver": "v1.17.0-abcdef (Build: 1 Aug 2026)", "get tx": "> 22", "get flood.max": "> 8"}
+
+    async def cli(self, contact, command, timeout):
+        self.calls.append(command)
+        if command == "get radio":
+            raise RadioError("no reply (timed out)")
+        return self.replies.get(command, "Error: unknown config")
+
 
 def make(tmp_path, *radios):
     db = DB(tmp_path / "t.db")
@@ -110,7 +118,7 @@ def test_poll_uses_node_radio_and_per_radio_budget(tmp_path):
     row = db.one("SELECT * FROM watched WHERE pubkey=?", (pub,))
     settings = config.get(db, "polling")
 
-    result = asyncio.run(poller.poll(row, settings))
+    result = asyncio.run(poller.poll(row, settings, inventory=False))
     assert result["ok"] and result["radio"] == "r2"
     assert r2.calls == ["login", "status"] and r1.calls == []
     state = db.one("SELECT * FROM node_state WHERE pubkey=?", (pub,))
@@ -121,7 +129,7 @@ def test_poll_uses_node_radio_and_per_radio_budget(tmp_path):
     # Switching the node to the other radio forces a fresh login there.
     db.x("UPDATE watched SET radio_id='r1' WHERE pubkey=?", (pub,))
     row = db.one("SELECT * FROM watched WHERE pubkey=?", (pub,))
-    assert asyncio.run(poller.poll(row, settings))["radio"] == "r1"
+    assert asyncio.run(poller.poll(row, settings, inventory=False))["radio"] == "r1"
     assert r1.calls == ["login", "status"]
 
 
@@ -179,3 +187,56 @@ def test_automatic_fails_over_to_next_radio(tmp_path):
     assert second["ok"] and second["radio"] == "r2"
     # Stays on the radio that worked.
     assert rs.choose(pub, None, mon, db) is r2
+
+
+def test_inventory_reads_firmware_and_settings_once_a_day(tmp_path):
+    from meshwatch.crypto import Box
+    from meshwatch import firmware
+    r1 = FakeRadio("r1", "aa" * 32)
+    db, mon, rs = make(tmp_path, r1)
+    box = Box("x" * 40)
+    poller = Poller(db, box, rs, mon)
+    pub = "cc" * 32
+    watch(db, mon, pub, radio_id="r1", admin=box.seal("pw"))
+    row = db.one("SELECT * FROM watched WHERE pubkey=?", (pub,))
+    result = asyncio.run(poller.poll(row))
+    assert result["ok"] and result["inventory"]["ver"].startswith("v1.17.0")
+    state = db.one("SELECT * FROM node_state WHERE pubkey=?", (pub,))
+    assert json.loads(state["config"]) == {"tx": "22", "flood.max": "8"}
+    assert firmware.parse_version(state["firmware"]) == (1, 17, 0)
+    r1.calls.clear()
+    asyncio.run(poller.poll(row))
+    assert "ver" not in r1.calls                          # fresh: not again today
+    # Drift: a second node on the same network with another tx power.
+    pub2 = "dd" * 32
+    watch(db, mon, pub2, radio_id="r1")
+    db.x("INSERT INTO node_state(pubkey,config,config_at) VALUES(?,?,?)", (pub2, json.dumps({"tx": "20"}), time.time()))
+    db.x("INSERT INTO node_state(pubkey) VALUES(?) ON CONFLICT DO NOTHING", ("ee" * 32,))
+    pub3 = "ee" * 32
+    watch(db, mon, pub3, radio_id="r1")
+    db.x("UPDATE node_state SET config=? WHERE pubkey=?", (json.dumps({"tx": "22"}), pub3))
+    (group,) = firmware.fleet(db, mon, {"r1": "909"})
+    by_key = {n["pubkey"]: n for n in group["nodes"]}
+    assert group["network"] == "909" and group["drift"] == ["tx"]
+    assert by_key[pub2]["differs"] == ["tx"] and by_key[pub]["differs"] == []
+
+
+def test_failed_polls_retry_soon_then_back_off(tmp_path):
+    from meshwatch.crypto import Box
+    r1 = FakeRadio("r1", "aa" * 32)
+
+    async def no_status(contact, timeout):
+        return None
+    r1.status = no_status
+    db, mon, rs = make(tmp_path, r1)
+    box = Box("x" * 40)
+    poller = Poller(db, box, rs, mon)
+    pub = "cc" * 32
+    watch(db, mon, pub, radio_id="r1", admin=box.seal("pw"))
+    row = db.one("SELECT * FROM watched WHERE pubkey=?", (pub,))
+    delays = []
+    for _ in range(4):
+        asyncio.run(poller.poll(row, inventory=False))
+        st = db.one("SELECT next_poll_at, last_poll_at FROM node_state WHERE pubkey=?", (pub,))
+        delays.append(round(st["next_poll_at"] - st["last_poll_at"]))
+    assert delays == [300, 900, 1800, 3600]

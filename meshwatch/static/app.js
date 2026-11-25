@@ -104,8 +104,60 @@ document.addEventListener("click", (ev) => {
   } else if (t.dataset.poll) {
     ev.preventDefault();
     pollNow(t);
+  } else if (t.dataset.inventory) {
+    ev.preventDefault();
+    readSettings(t);
+  } else if (t.id === "bulkclear") {
+    bulk.clear();
+    syncBulk();
   }
 });
+
+async function readSettings(btn) {
+  const msg = $("#invmsg");
+  btn.disabled = true;
+  if (msg) msg.textContent = "Reading firmware and settings over the mesh (about 10 requests)…";
+  const res = await postJSON(`/nodes/${btn.dataset.inventory}/inventory`);
+  btn.disabled = false;
+  if (res.ok && res.data.ok) location.reload();
+  else if (msg) msg.textContent = "Failed: " + (res.data.error || errText(res));
+}
+
+// ---------- bulk add (add page) ----------
+const bulk = new Map();   // pubkey -> name, kept across searches
+
+function syncBulk() {
+  const panel = $("#bulkpanel");
+  if (!panel) return;
+  document.querySelectorAll("input.bulk").forEach((cb) => { cb.checked = bulk.has(cb.value); });
+  panel.hidden = bulk.size === 0;
+  $("#bulkcount").textContent = bulk.size;
+  const list = $("#bulklist");
+  const keys = $("#bulkkeys");
+  list.replaceChildren();
+  keys.replaceChildren();
+  for (const [key, name] of bulk) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = name;
+    list.append(chip);
+    const input = document.createElement("input");
+    input.type = "hidden"; input.name = "pubkey"; input.value = key;
+    keys.append(input);
+  }
+}
+
+document.addEventListener("change", (ev) => {
+  const t = ev.target;
+  if (t.classList && t.classList.contains("bulk")) {
+    if (t.checked) bulk.set(t.value, t.dataset.name); else bulk.delete(t.value);
+    syncBulk();
+  } else if (t.classList && t.classList.contains("pick-net")) {
+    document.querySelectorAll(`input.target[data-net="${CSS.escape(t.dataset.net)}"]`)
+      .forEach((cb) => { cb.checked = t.checked; });
+  }
+});
+document.addEventListener("htmx:afterSwap", syncBulk);
 
 document.addEventListener("submit", (ev) => {
   const f = ev.target;
@@ -128,6 +180,7 @@ function initConsole() {
   const input = $("#cmd");
   if (!box || !input) return;
   const node = box.dataset.node;
+  const multi = !!box.dataset.multi;
   const list = $("#suggest");
   const hint = $("#hint");
   let commands = [];
@@ -137,7 +190,7 @@ function initConsole() {
   let histPos = -1;
   box.scrollTop = box.scrollHeight;
 
-  fetch(`/api/v1/cli/catalog?node=${node}`, { credentials: "same-origin" })
+  fetch(`/api/v1/cli/catalog?node=${node || ""}`, { credentials: "same-origin" })
     .then((r) => r.json()).then((d) => {
       commands = (d.commands || []).sort((a, b) => a.cmd.localeCompare(b.cmd));
       historyCmds = d.history || [];
@@ -241,34 +294,118 @@ function initConsole() {
     return d;
   }
 
-  async function send(command, confirmed) {
-    input.disabled = true;
-    if (!confirmed) line("cmd", "> " + command);
+  function targets() {
+    if (!multi) return [{ key: node, label: box.dataset.label || "", net: "" }];
+    return [...document.querySelectorAll("input.target:checked")]
+      .map((cb) => ({ key: cb.value, label: cb.dataset.label, net: cb.dataset.net }));
+  }
+
+  function show(t, res) {
+    if (multi) line("meta", t.label);
+    if (!res.ok) { line("err", errText(res)); return; }
+    if (res.data.ok) {
+      line("reply", res.data.reply || "(empty reply)");
+      line("meta", (res.data.previous != null ? `was: ${res.data.previous} · ` : "") + `${res.data.elapsed_s}s`);
+    } else {
+      line("err", res.data.error || "failed");
+    }
+  }
+
+  const exec = (t, command, confirmed) =>
+    postJSON(`/api/v1/nodes/${t.key}/cli`, { command, confirm: !!confirmed });
+
+  // Runs one command on every target. run.confirmed carries the user's "yes" across a snippet.
+  async function runCommand(command, run) {
+    const list = targets();
+    if (!list.length) { line("err", "Tick at least one node above."); return false; }
+    line("cmd", "> " + command + (multi ? `   (${list.length} node${list.length > 1 ? "s" : ""})` : ""));
     const pending = line("meta", "sending over the mesh…");
-    try {
-      const res = await postJSON(`/api/v1/nodes/${node}/cli`, { command, confirm: !!confirmed });
-      pending.remove();
-      if (res.status === 409 && res.data.needs_confirm) {
-        if (confirm(`“${command}” changes the node (it may reboot, change radio settings or cut it off). Send it?`)) {
-          return send(command, true);
-        }
-        line("err", "cancelled");
-      } else if (!res.ok) {
-        line("err", errText(res));
-      } else if (res.data.ok) {
-        line("reply", res.data.reply || "(empty reply)");
-        line("meta", `${res.data.elapsed_s}s`);
-      } else {
-        line("err", res.data.error || "failed");
+    const first = list[0];
+    let res = await exec(first, command, run.confirmed);
+    if (res.status === 409 && res.data.needs_confirm) {
+      const what = run.snippet ? `the snippet “${run.snippet}”` : `“${command}”`;
+      const where = list.length > 1 ? ` on ${list.length} nodes` : "";
+      if (!confirm(`${what} changes nodes${where} (may reboot, change radio settings or cut a node off). Send it?`)) {
+        pending.remove(); line("err", "cancelled"); return false;
       }
-      if (!historyCmds.includes(command)) historyCmds.unshift(command);
+      run.confirmed = true;
+      res = await exec(first, command, true);
+    }
+    show(first, res);
+    // The rest: sequential per network/radio, networks in parallel.
+    const groups = new Map();
+    for (const t of list.slice(1)) { if (!groups.has(t.net)) groups.set(t.net, []); groups.get(t.net).push(t); }
+    await Promise.all([...groups.values()].map(async (g) => {
+      for (const t of g) show(t, await exec(t, command, run.confirmed));
+    }));
+    pending.remove();
+    if (!historyCmds.includes(command)) historyCmds.unshift(command);
+    return true;
+  }
+
+  async function send(command, run) {
+    input.disabled = true;
+    try {
+      await runCommand(command, run || { confirmed: false });
     } catch (e) {
-      pending.remove();
       line("err", e.message || String(e));
     } finally {
       input.disabled = false;
       input.focus();
     }
+  }
+
+  // ---------- snippets ----------
+  const snippetList = $("#snippetlist");
+  const snippetForm = $("#snippetform");
+  const F = () => snippetForm.elements;
+  async function loadSnippets() {
+    if (!snippetList) return;
+    const d = await fetch("/api/v1/snippets", { credentials: "same-origin" }).then((r) => r.json());
+    snippetList.replaceChildren();
+    for (const sn of d.snippets || []) {
+      const run = document.createElement("button");
+      run.type = "button"; run.className = "secondary"; run.textContent = "▶ " + sn.name;
+      run.title = sn.commands.join("\n");
+      run.addEventListener("click", async () => {
+        input.disabled = true;
+        const state = { confirmed: false, snippet: sn.name };
+        try {
+          for (const c of sn.commands) { if (!(await runCommand(c, state))) break; }
+        } finally { input.disabled = false; }
+      });
+      const edit = document.createElement("button");
+      edit.type = "button"; edit.className = "secondary small"; edit.textContent = "edit";
+      edit.addEventListener("click", () => {
+        F().sid.value = sn.id; F().sname.value = sn.name;
+        F().scmds.value = sn.commands.join("\n");
+      });
+      const del = document.createElement("button");
+      del.type = "button"; del.className = "secondary small"; del.textContent = "✕";
+      del.setAttribute("aria-label", "Delete snippet " + sn.name);
+      del.addEventListener("click", async () => {
+        if (!confirm(`Delete snippet “${sn.name}”?`)) return;
+        await postJSON(`/api/v1/snippets/${sn.id}/delete`);
+        loadSnippets();
+      });
+      const wrap = document.createElement("span");
+      wrap.className = "snippet";
+      wrap.append(run, edit, del);
+      snippetList.append(wrap);
+    }
+  }
+  if (snippetForm) {
+    snippetForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const res = await postJSON("/api/v1/snippets", {
+        id: F().sid.value || null, name: F().sname.value,
+        commands: F().scmds.value.split("\n"),
+      });
+      if (!res.ok) { alert(errText(res)); return; }
+      snippetForm.reset(); F().sid.value = "";
+      loadSnippets();
+    });
+    loadSnippets();
   }
 
   input.addEventListener("input", () => { sel = -1; histPos = -1; render(); });
@@ -300,7 +437,7 @@ function initConsole() {
       const command = input.value.trim().replace(/\s+/g, " ");
       if (!command) return;
       input.value = ""; sel = -1; histPos = -1; list.hidden = true; hint.textContent = "";
-      send(command, false);
+      send(command);
     }
   });
 }
