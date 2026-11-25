@@ -206,8 +206,10 @@ class Poller:
             ver = values.pop("ver", None)
             old = self.db.one("SELECT config FROM node_state WHERE pubkey=?", (key,))
             merged = {**(json.loads(old["config"]) if old and old["config"] else {}), **values}
+            # An incomplete read (replies lost) is retried in about 2 hours instead of tomorrow.
+            read_at = time.time() if not timeouts else time.time() - firmware.INVENTORY_EVERY_S + 7200
             self.db.x("UPDATE node_state SET config=?, config_at=?, firmware=COALESCE(?, firmware) WHERE pubkey=?",
-                      (json.dumps(merged), time.time(), ver, key))
+                      (json.dumps(merged), read_at, ver, key))
             values["ver"] = ver
         return values
 
