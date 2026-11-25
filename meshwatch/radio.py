@@ -281,6 +281,9 @@ class Radios:
         errs = [f"{r.name}: {r.error}" for r in self if r.error]
         return "; ".join(errs) or None
 
+    def connected(self) -> list[Radio]:
+        return [r for r in self if r.state == "connected"]
+
     @property
     def last_rx(self) -> float | None:
         times = [r.last_rx for r in self if r.last_rx]
@@ -292,7 +295,9 @@ class Radios:
         An explicit per-node choice wins. Otherwise ("auto"): the companion that
         most recently heard the node itself, then one whose MQTT regions match
         where the node was heard, then the one that last polled it successfully,
-        then the first connected companion.
+        then the first connected companion. Without the companion having heard
+        the node, a radio whose last poll of it failed is passed over for the
+        next one, so a node on another network is found by trying each radio.
         """
         if preferred:
             radio = self.by_id.get(preferred)
@@ -304,27 +309,34 @@ class Radios:
             raise RadioError("companion radio not connected")
         if len(live) == 1:
             return live[0]
+        seen = monitor.directory.get(pubkey)
+        seen_heard = seen.heard if seen else {}
         by_key = {r.public_key: r for r in live if r.public_key}
-        heard: dict[str, float] = {}
+        heard: dict[str, float] = {k: ts for k, ts in seen_heard.get("radio", {}).items() if k in by_key}
         if by_key:
             marks = ",".join("?" * len(by_key))
             for row in db.q(f"SELECT observer, MAX(ts) AS ts FROM observations WHERE pubkey=? AND observer IN ({marks})"
                             " GROUP BY observer", (pubkey, *by_key)):
-                heard[row["observer"]] = row["ts"]
+                heard[row["observer"]] = max(heard.get(row["observer"], 0), row["ts"])
             for b in monitor.buckets.values():
                 if b.pubkey == pubkey and b.observer in by_key:
                     heard[b.observer] = max(heard.get(b.observer, 0), b.start)
         if heard:
             return by_key[max(heard, key=heard.get)]
+        week_ago = time.time() - 7 * 86400
         regions = {row["region"].upper() for row in db.q(
             "SELECT DISTINCT region FROM observations WHERE pubkey=? AND region IS NOT NULL AND ts>?",
-            (pubkey, time.time() - 7 * 86400))}
+            (pubkey, week_ago))}
         regions |= {b.region.upper() for b in monitor.buckets.values() if b.pubkey == pubkey and b.region}
+        regions |= {r for r, ts in seen_heard.get("regions", {}).items() if ts > week_ago}
         matches = [r for r in live if r.regions & regions]
+        state = db.one("SELECT poll_radio, last_poll_ok, fail_radio FROM node_state WHERE pubkey=?", (pubkey,))
         if len(matches) == 1:
-            return matches[0]
-        row = db.one("SELECT poll_radio FROM node_state WHERE pubkey=? AND last_poll_ok IS NOT NULL", (pubkey,))
-        last = self.by_id.get(row["poll_radio"]) if row and row["poll_radio"] else None
-        if last in live:
-            return last
-        return (matches or live)[0]
+            pick = matches[0]
+        else:
+            last = self.by_id.get(state["poll_radio"]) if state and state["last_poll_ok"] else None
+            pick = last if last in live else (matches or live)[0]
+        failed = self.by_id.get(state["fail_radio"]) if state and state["fail_radio"] else None
+        if pick is failed:
+            pick = live[(live.index(pick) + 1) % len(live)]
+        return pick

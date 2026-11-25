@@ -13,6 +13,7 @@ State is kept in memory and flushed to SQLite periodically.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections import OrderedDict
@@ -37,6 +38,20 @@ class SeenNode:
     advert_ts: int
     last_seen: float
     dirty: bool = True
+    # Where its adverts were heard, for automatic radio choice before the node is
+    # watched: {"radio": {companion key: ts}, "regions": {IATA: ts}}.
+    heard: dict = field(default_factory=dict)
+
+    def note_heard(self, observer: str, region: str | None, ts: float) -> None:
+        if region == "radio":
+            kind, key = "radio", observer
+        elif region:
+            kind, key = "regions", region.upper()
+        else:
+            return
+        bucket = self.heard.setdefault(kind, {})
+        if ts > bucket.get(key, 0):
+            bucket[key] = ts
 
 
 @dataclass
@@ -82,7 +97,8 @@ class Monitor:
         cutoff = time.time() - DIRECTORY_MAX_AGE_S
         for r in self.db.q("SELECT * FROM seen_nodes WHERE last_seen > ?", (cutoff,)):
             self.directory[r["pubkey"]] = SeenNode(r["pubkey"], r["name"], r["node_type"], r["lat"],
-                                                   r["lon"], r["advert_ts"], r["last_seen"], dirty=False)
+                                                   r["lon"], r["advert_ts"], r["last_seen"], dirty=False,
+                                                   heard=json.loads(r["heard"] or "{}"))
         self.reload_watched()
 
     def reload_watched(self) -> None:
@@ -127,10 +143,13 @@ class Monitor:
             return
         seen = self.directory.get(adv.pubkey)
         if seen is None or adv.timestamp >= seen.advert_ts:
-            self.directory[adv.pubkey] = SeenNode(adv.pubkey, adv.name, adv.node_type, adv.lat, adv.lon,
-                                                  adv.timestamp, ts)
+            last_seen = max(seen.last_seen, ts) if seen else ts
+            seen = self.directory[adv.pubkey] = SeenNode(adv.pubkey, adv.name, adv.node_type, adv.lat, adv.lon,
+                                                         adv.timestamp, last_seen,
+                                                         heard=seen.heard if seen else {})
         else:
             seen.last_seen, seen.dirty = max(seen.last_seen, ts), True
+        seen.note_heard(observer, region, ts)
         if adv.pubkey in self.watched:
             live = self.live[adv.pubkey]
             live.last_advert = max(live.last_advert or 0, ts)
@@ -215,11 +234,12 @@ class Monitor:
                 l.dirty = False
         seen = [s for s in self.directory.values() if s.dirty]
         if seen:
-            self.db.many("INSERT INTO seen_nodes(pubkey,name,node_type,lat,lon,advert_ts,last_seen)"
-                         " VALUES(?,?,?,?,?,?,?) ON CONFLICT(pubkey) DO UPDATE SET name=excluded.name,"
+            self.db.many("INSERT INTO seen_nodes(pubkey,name,node_type,lat,lon,advert_ts,last_seen,heard)"
+                         " VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(pubkey) DO UPDATE SET name=excluded.name,"
                          " node_type=excluded.node_type, lat=excluded.lat, lon=excluded.lon,"
-                         " advert_ts=excluded.advert_ts, last_seen=excluded.last_seen",
-                         [(s.pubkey, s.name, s.node_type, s.lat, s.lon, s.advert_ts, s.last_seen) for s in seen])
+                         " advert_ts=excluded.advert_ts, last_seen=excluded.last_seen, heard=excluded.heard",
+                         [(s.pubkey, s.name, s.node_type, s.lat, s.lon, s.advert_ts, s.last_seen,
+                           json.dumps(s.heard)) for s in seen])
             for s in seen:
                 s.dirty = False
 

@@ -275,6 +275,7 @@ def create_app(env=None) -> FastAPI:
             "next_poll_at": state["next_poll_at"] if state else None,
             "login_role": state["login_role"] if state else None,
             "radio_id": row["radio_id"], "poll_radio": state["poll_radio"] if state else None,
+            "auto_radio": auto_radio(s, row),
             "has_admin": bool(row["admin_pw"]), "has_guest": bool(row["guest_pw"]),
             "poll_enabled": bool(row["poll_enabled"]), "poll_interval_min": row["poll_interval_min"],
             "alerts_enabled": bool(row["alerts_enabled"]), "silent_min": row["silent_min"],
@@ -284,6 +285,15 @@ def create_app(env=None) -> FastAPI:
             "snr_24h": round(recent["snr"], 1) if recent["snr"] is not None else None,
             "best_snr_24h": recent["best"], "added_at": row["added_at"],
         }
+
+    def auto_radio(s: Services, row) -> str | None:
+        """Name of the companion Automatic would use now (None when pinned or none is connected)."""
+        if row["radio_id"]:
+            return None
+        try:
+            return s.radios.choose(row["pubkey"], None, s.monitor, s.db).name
+        except RadioError:
+            return None
 
     def watched_row(s: Services, key: str):
         row = s.db.one("SELECT * FROM watched WHERE pubkey=?", (key,))

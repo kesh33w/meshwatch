@@ -52,7 +52,7 @@ Open the setup link, create your passkey, then in **Settings**:
    identity), or a USB serial device (uncomment `devices:` in `compose.yaml`). Add one per
    network if you watch nodes on more than one frequency. Each node uses the radio picked on
    its page, or **Automatic**: the companion that heard it most recently, then a companion whose
-   optional *MQTT regions* match where the node was heard, then the one that last polled it.
+   optional *MQTT regions* match where the node was heard, then the one that last polled it. If a poll fails and no companion has heard the node, the next companion is tried.
 2. **MQTT feeds**: e.g. `wss://broker.example.org/mqtt` with your credentials.
 3. **Notifications**: an ntfy server + topic; subscribe to it in the ntfy phone app.
 

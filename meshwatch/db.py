@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 -- Directory of nodes seen in adverts (for search). Flushed in batches.
 CREATE TABLE IF NOT EXISTS seen_nodes (
   pubkey TEXT PRIMARY KEY, name TEXT, node_type TEXT, lat REAL, lon REAL,
-  advert_ts INTEGER, last_seen REAL NOT NULL);
+  advert_ts INTEGER, last_seen REAL NOT NULL,
+  heard TEXT);                             -- JSON: companions/regions that heard its adverts
 CREATE INDEX IF NOT EXISTS seen_nodes_name ON seen_nodes(name);
 
 CREATE TABLE IF NOT EXISTS watched (
@@ -33,7 +34,8 @@ CREATE TABLE IF NOT EXISTS node_state (
   last_advert REAL, last_poll_at REAL, last_poll_ok REAL, poll_fails INTEGER NOT NULL DEFAULT 0,
   next_poll_at REAL, last_login_at REAL, login_role TEXT, last_error TEXT,
   status TEXT, status_at REAL, telemetry TEXT, telemetry_at REAL, firmware TEXT,
-  poll_radio TEXT, login_radio TEXT);
+  poll_radio TEXT, login_radio TEXT,
+  fail_radio TEXT);                        -- radio of the last failed poll (automatic failover)
 
 -- Raw data (30 days). One row per node/observer/kind per 5-minute bucket,
 -- averaged, to keep disk writes low for busy repeaters.
@@ -97,7 +99,8 @@ class DB:
         self._migrate()
 
     # Columns added after the first release (CREATE TABLE IF NOT EXISTS leaves old tables alone).
-    ADDED_COLUMNS = {"watched": ["radio_id TEXT"], "node_state": ["poll_radio TEXT", "login_radio TEXT"]}
+    ADDED_COLUMNS = {"watched": ["radio_id TEXT"], "seen_nodes": ["heard TEXT"],
+                     "node_state": ["poll_radio TEXT", "login_radio TEXT", "fail_radio TEXT"]}
 
     def _migrate(self) -> None:
         for table, columns in self.ADDED_COLUMNS.items():

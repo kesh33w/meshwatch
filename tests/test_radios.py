@@ -142,3 +142,40 @@ def test_tick_polls_both_radios_in_parallel(tmp_path):
     asyncio.run(go())
     polled = {r["pubkey"]: r["poll_radio"] for r in db.q("SELECT * FROM node_state WHERE last_poll_ok IS NOT NULL")}
     assert sorted(polled.values()) == ["r1", "r2"]
+
+
+def test_choose_uses_where_adverts_were_heard_before_watching(tmp_path):
+    r909, r910 = FakeRadio("r1", "aa" * 32), FakeRadio("r2", "bb" * 32)
+    db, mon, rs = make(tmp_path, r909, r910)
+    priv, pub = keypair(None)
+    mon.ingest(advert_packet(priv), r910.public_key, "radio", 3.0, -100)   # not watched yet
+    mon.flush(force=True)
+    mon2 = Monitor(db)                                                      # survives a restart
+    watch(db, mon2, pub)
+    assert rs.choose(pub, None, mon2, db) is r910
+
+
+def test_automatic_fails_over_to_next_radio(tmp_path):
+    from meshwatch.crypto import Box
+    r1, r2 = FakeRadio("r1", "aa" * 32), FakeRadio("r2", "bb" * 32)
+
+    async def no_status(contact, timeout):
+        r1.calls.append("status")
+        return None
+    r1.status = no_status
+    db, mon, rs = make(tmp_path, r1, r2)
+    box = Box("x" * 40)
+    poller = Poller(db, box, rs, mon)
+    pub = "cc" * 32
+    watch(db, mon, pub, admin=box.seal("pw"))
+    row = db.one("SELECT * FROM watched WHERE pubkey=?", (pub,))
+    settings = config.get(db, "polling")
+
+    first = asyncio.run(poller.poll(row, settings))
+    assert not first["ok"] and first["radio"] == "r1"
+    state = db.one("SELECT * FROM node_state WHERE pubkey=?", (pub,))
+    assert state["next_poll_at"] - time.time() <= settings["min_gap_s"] + 1   # retried soon, not backed off
+    second = asyncio.run(poller.poll(row, settings))
+    assert second["ok"] and second["radio"] == "r2"
+    # Stays on the radio that worked.
+    assert rs.choose(pub, None, mon, db) is r2

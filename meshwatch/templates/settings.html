@@ -4,7 +4,7 @@
 
 <h2 id="radio">Companion radios</h2>
 <div class="panel">
-<p class="note">Used for polling and the remote console. Add one companion per network/frequency (e.g. 909 and 910). Each node uses the radio chosen on its page, or picks one automatically: the companion that heard it most recently, then a companion whose MQTT regions match where it was heard, then the one that last polled it. Each radio has its own hourly polling budget.</p>
+<p class="note">Used for polling and the remote console. Add one companion per network/frequency (e.g. 909 and 910). Each node uses the radio chosen on its page, or picks one automatically: the companion that heard it most recently, then a companion whose MQTT regions match where it was heard, then the one that last polled it; if a poll fails, the next companion is tried. Each radio has its own hourly polling budget.</p>
 {% macro radio_form(r, st) %}
 <form method="post" action="/settings/radio" class="panel">
   <input type="hidden" name="id" value="{{ r.id or '' }}">

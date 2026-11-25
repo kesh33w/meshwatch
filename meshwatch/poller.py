@@ -191,11 +191,15 @@ class Poller:
         settings = config.get(self.db, "polling")
         if result["ok"]:
             self.db.x("UPDATE node_state SET last_poll_at=?, last_poll_ok=?, poll_fails=0, next_poll_at=?,"
-                      " last_error=NULL, poll_radio=? WHERE pubkey=?",
+                      " last_error=NULL, poll_radio=?, fail_radio=NULL WHERE pubkey=?",
                       (now, now, now + interval, result.get("radio"), node["pubkey"]))
         else:
             fails = (node["poll_fails"] or 0) + 1
             delay = min(interval * 2 ** (fails - 1), settings["max_backoff_min"] * 60)
-            self.db.x("UPDATE node_state SET last_poll_at=?, poll_fails=?, next_poll_at=?, last_error=?"
-                      " WHERE pubkey=?", (now, fails, now + delay, result["error"], node["pubkey"]))
+            if not node["radio_id"] and fails < len(self.radios.connected()):
+                # Automatic: try the next companion soon before backing off.
+                delay = settings["min_gap_s"]
+            self.db.x("UPDATE node_state SET last_poll_at=?, poll_fails=?, next_poll_at=?, last_error=?,"
+                      " fail_radio=? WHERE pubkey=?",
+                      (now, fails, now + delay, result["error"], result.get("radio"), node["pubkey"]))
             log.info("poll %s via %s failed: %s", node["pubkey"][:8], result.get("radio"), result["error"])
